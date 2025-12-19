@@ -40,6 +40,40 @@ npm run test
 npm run build
 ```
 
+## 🐳 Docker
+
+### Quick Start with Docker Compose
+
+```bash
+# Development (with hot-reload)
+docker-compose up dev
+
+# Production
+docker-compose up prod
+
+# Production with Nginx (port 80)
+docker-compose --profile nginx up nginx
+```
+
+### Manual Docker Build
+
+```bash
+# Build production image
+docker build -t stellar-symphony .
+
+# Run container
+docker run -p 3000:3000 stellar-symphony
+```
+
+### Available Docker Configurations
+
+| File | Purpose | Port |
+|------|---------|------|
+| `Dockerfile` | Production (serve) | 3000 |
+| `Dockerfile.dev` | Development with hot-reload | 3000 |
+| `Dockerfile.nginx` | Production with Nginx | 80 |
+| `docker-compose.yml` | Orchestration for all environments | - |
+
 ## 📊 Star Data
 
 The project includes **90+ real stars** from the Hipparcos catalog with:
@@ -128,19 +162,33 @@ The audio engine uses advanced algorithms to generate unique ambient soundscapes
   constellations.json   # 19 constellation patterns
 /scripts
   build-stars.ts        # Data generation script
+
+# Docker
+Dockerfile              # Production multi-stage build
+Dockerfile.dev          # Development with hot-reload
+Dockerfile.nginx        # Nginx production server
+docker-compose.yml      # Orchestration
+nginx.conf              # Nginx configuration
+.dockerignore           # Docker build exclusions
 ```
 
 ## 🌐 Deploy
 
 The site is fully static and can be deployed to:
-- Vercel (recommended)
-- Cloudflare Pages
-- GitHub Pages
-- Any static hosting
+- **Docker** (included) — See Docker section above
+- **Vercel** (recommended for serverless)
+- **Cloudflare Pages**
+- **GitHub Pages**
+- **Any static hosting**
 
 ```bash
+# Local build
 npm run build
-# Output in .next/ folder
+# Output in out/ folder (static export)
+
+# Docker production build
+docker build -t stellar-symphony .
+docker run -p 3000:3000 stellar-symphony
 ```
 
 ## 📚 Data Sources & References

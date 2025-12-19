@@ -1,0 +1,72 @@
+# =============================================================================
+# Stellar Symphony - Docker Compose Configuration
+# =============================================================================
+# Development: docker-compose up dev
+# Production:  docker-compose up prod
+# Build:       docker-compose build
+# =============================================================================
+
+services:
+  # ---------------------------------------------------------------------------
+  # Development Service (with hot-reload)
+  # ---------------------------------------------------------------------------
+  dev:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    container_name: stellar-symphony-dev
+    ports:
+      - "3000:3000"
+    volumes:
+      # Mount source code for hot-reload
+      - .:/app
+      # Preserve node_modules from container
+      - /app/node_modules
+      - /app/.next
+    environment:
+      - NODE_ENV=development
+      - NEXT_TELEMETRY_DISABLED=1
+      - WATCHPACK_POLLING=true
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # Production Service (static export served via 'serve')
+  # ---------------------------------------------------------------------------
+  prod:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: stellar-symphony-prod
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/"]
+      interval: 30s
+      timeout: 3s
+      start_period: 5s
+      retries: 3
+
+  # ---------------------------------------------------------------------------
+  # Nginx Production Service (alternative, more performant)
+  # ---------------------------------------------------------------------------
+  nginx:
+    build:
+      context: .
+      dockerfile: Dockerfile.nginx
+    container_name: stellar-symphony-nginx
+    ports:
+      - "80:80"
+    environment:
+      - NODE_ENV=production
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/"]
+      interval: 30s
+      timeout: 3s
+      start_period: 5s
+      retries: 3
+    profiles:
+      - nginx

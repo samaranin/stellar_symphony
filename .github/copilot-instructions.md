@@ -42,7 +42,7 @@ You are acting as a senior full-stack engineer focused on **high-performance Web
 
 * **No runtime backend / no database.**
 * All app data must load from **static files** served from `/public/data/*`.
-* The site must be deployable as static hosting (Vercel/Cloudflare Pages).
+* The site must be deployable as static hosting (Vercel/Cloudflare Pages/Docker).
 * Audio must **NOT autoplay**. Start only after explicit user gesture (Play button).
 
 ## Tech Stack
@@ -52,6 +52,7 @@ You are acting as a senior full-stack engineer focused on **high-performance Web
 * Three.js via **@react-three/fiber** and **@react-three/drei**
 * **Tone.js** 14.8 for audio generation
 * **Vitest** for unit testing
+* **Docker** for containerized deployment
 
 ---
 
@@ -184,7 +185,46 @@ Optional: `name`, `bayer`, `dist`, `spec`, `temp`
   constellations.json   # 19 constellations
 /scripts
   build-stars.ts        # Data generation
+
+# Docker
+Dockerfile              # Production multi-stage build
+Dockerfile.dev          # Development with hot-reload
+Dockerfile.nginx        # Nginx production server
+docker-compose.yml      # Orchestration
+nginx.conf              # Nginx configuration
+.dockerignore           # Docker build exclusions
 ```
+
+---
+
+## Docker Deployment
+
+### Development
+```bash
+# Start with hot-reload
+docker-compose up dev
+```
+
+### Production
+```bash
+# Option 1: Node.js serve (port 3000)
+docker-compose up prod
+
+# Option 2: Nginx (port 80, more performant)
+docker-compose --profile nginx up nginx
+
+# Manual build
+docker build -t stellar-symphony .
+docker run -p 3000:3000 stellar-symphony
+```
+
+### Docker Architecture
+
+| Dockerfile | Base | Server | Use Case |
+|------------|------|--------|----------|
+| `Dockerfile` | node:20-alpine | serve | Standard production |
+| `Dockerfile.dev` | node:20-alpine | next dev | Development |
+| `Dockerfile.nginx` | nginx:alpine | nginx | High-performance production |
 
 ---
 
@@ -236,6 +276,8 @@ Current test coverage:
 - **Tone.js**: https://tonejs.github.io/
 - **Next.js**: https://nextjs.org/
 - **Vitest**: https://vitest.dev/
+- **Docker**: https://www.docker.com/
+- **Nginx**: https://nginx.org/
 
 ---
 
