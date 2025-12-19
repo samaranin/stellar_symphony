@@ -1,6 +1,14 @@
 "use client";
 
 import { mapStarToTone } from "./mappings";
+import { 
+  generateProceduralMusic, 
+  midiToNoteName as proceduralMidiToNote, 
+  buildChordNotes,
+  Phrase,
+  ChordProgression,
+  GeneratorConfig
+} from "./procedural";
 import { StarRecord } from "@/lib/types";
 
 type EngineState = {
@@ -167,6 +175,11 @@ export async function playForStar(star: StarRecord, seed = Math.random()) {
     throw new Error("Audio not initialized");
   }
 
+  // Use the new procedural generation system (Markov chains + Genetic Algorithm)
+  const proceduralData = generateProceduralMusic(star, seed);
+  const { melody, harmony, bassline, chords, config } = proceduralData;
+
+  // Also get the original mappings for effects parameters
   const params = mapStarToTone(star);
   state.lastBaseGain = params.gain;
   const targetGain = Math.max(0.001, Math.min(0.9, state.lastBaseGain * state.userVolume));
@@ -180,12 +193,11 @@ export async function playForStar(star: StarRecord, seed = Math.random()) {
     (state._Transport?.seconds ?? 0) + 0.5
   );
 
-  const progression = buildProgression(params.baseNote);
-  const padNotes = progression[0];
-  const partNotes = buildParticleSequence(params.baseNote, seed, params.particleDensity);
-  const shimmerNotes = buildShimmerVoicing(params.baseNote + 12);
+  // Build initial chord from the evolved progression
+  const initialChordNotes = buildChordNotes(chords.roots[0], chords.qualities[0]);
+  const shimmerNotes = buildShimmerVoicing(config.baseNote + 12);
 
-  state.padSynth.triggerAttackRelease(padNotes, "2m");
+  state.padSynth.triggerAttackRelease(initialChordNotes, "2m");
   state.shimmerSynth?.triggerAttackRelease(shimmerNotes, "4m");
 
   disposeLoop();
@@ -196,21 +208,60 @@ export async function playForStar(star: StarRecord, seed = Math.random()) {
     throw new Error("Audio transport not initialized");
   }
 
-  let bar = 0;
+  // Track playback state for evolved phrases
+  let step = 0;
+  let chordIndex = 0;
+  let melodyIndex = 0;
+  let harmonyIndex = 0;
+  let bassIndex = 0;
+  const stepsPerBeat = 2; // 8th notes
+  
   state.loop = new LoopCtor((time: number) => {
-    // particles
-    const choice = partNotes[Math.floor(Math.random() * partNotes.length)];
-    state.particleSynth!.triggerAttackRelease(choice, "16n", time, 0.7 + Math.random() * 0.2);
-
-    // every 2 bars, move pad to next chord
-    if (bar % 8 === 0) {
-      const idx = (bar / 8) % progression.length;
-      const chord = progression[idx];
-      state.padSynth!.triggerAttackRelease(chord, "2m", time + 0.01, 0.8);
-      state.shimmerSynth?.triggerAttackRelease(shimmerNotes, "4m", time + 0.02, 0.6);
+    const beat = step / stepsPerBeat;
+    
+    // Play evolved melody notes (particle synth)
+    if (melodyIndex < melody.notes.length) {
+      const note = midiToNoteName(melody.notes[melodyIndex]);
+      const velocity = melody.velocities[melodyIndex];
+      const duration = `${Math.max(0.125, melody.durations[melodyIndex] / 2)}n`;
+      
+      // Trigger on appropriate subdivisions based on duration
+      if (step % Math.max(1, Math.round(melody.durations[melodyIndex] * stepsPerBeat)) === 0) {
+        state.particleSynth!.triggerAttackRelease(note, duration, time, velocity * 0.8);
+        melodyIndex = (melodyIndex + 1) % melody.notes.length;
+      }
     }
 
-    bar++;
+    // Play harmony layer (shimmer synth) - slower, every 4 beats
+    if (step % (stepsPerBeat * 4) === 0 && harmonyIndex < harmony.notes.length) {
+      const note = midiToNoteName(harmony.notes[harmonyIndex]);
+      const velocity = harmony.velocities[harmonyIndex];
+      state.shimmerSynth?.triggerAttackRelease(note, "2n", time + 0.02, velocity * 0.5);
+      harmonyIndex = (harmonyIndex + 1) % harmony.notes.length;
+    }
+
+    // Play bass notes - every 2 beats
+    if (step % (stepsPerBeat * 2) === 0 && bassIndex < bassline.notes.length) {
+      const note = midiToNoteName(bassline.notes[bassIndex]);
+      const velocity = bassline.velocities[bassIndex];
+      // Bass through pad synth with long release
+      const bassNotes = [note];
+      state.padSynth!.triggerAttackRelease(bassNotes, "1n", time, velocity * 0.6);
+      bassIndex = (bassIndex + 1) % bassline.notes.length;
+    }
+
+    // Change chords based on progression - every 8 beats (2 bars)
+    if (step % (stepsPerBeat * 8) === 0) {
+      chordIndex = (chordIndex + 1) % chords.roots.length;
+      const chordNotes = buildChordNotes(chords.roots[chordIndex], chords.qualities[chordIndex]);
+      state.padSynth!.triggerAttackRelease(chordNotes, "2m", time + 0.01, 0.7);
+      
+      // Also trigger shimmer on chord changes
+      const shimmer = buildShimmerVoicing(chords.roots[chordIndex] + 12);
+      state.shimmerSynth?.triggerAttackRelease(shimmer, "4m", time + 0.02, 0.5);
+    }
+
+    step++;
   }, "8n");
 
   state.loop.start(0);
