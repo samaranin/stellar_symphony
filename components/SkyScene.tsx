@@ -38,7 +38,7 @@ export function SkyScene({ stars, constellations, onSelect, showConstellations }
     if (!star) return;
     onSelect({ star, index });
     const pos = raDecToXYZ(star.ra, star.dec, RADIUS);
-    const focusPos = focusFromPosition(pos, RADIUS, 0.9);
+    const focusPos = focusFromPosition(pos, RADIUS, 0.6);
     setFocus(new Vector3(focusPos.camera.x, focusPos.camera.y, focusPos.camera.z));
     setTarget(new Vector3(focusPos.target.x, focusPos.target.y, focusPos.target.z));
     setAnimating(true);
@@ -71,7 +71,7 @@ export function SkyScene({ stars, constellations, onSelect, showConstellations }
 
   return (
     <div className="absolute inset-0">
-      <Canvas camera={{ position: [0, 0, RADIUS * 0.6], fov: 70 }}>
+      <Canvas camera={{ position: [0, 0, RADIUS * 0.6], fov: 70 }} style={{ touchAction: "none" }}>
         <color attach="background" args={["#05060a"]} />
         <ambientLight intensity={0.4} />
         <Suspense fallback={null}>
@@ -89,15 +89,18 @@ export function SkyScene({ stars, constellations, onSelect, showConstellations }
           onFinish={() => setAnimating(false)}
           reducedMotion={prefersReducedMotion}
         />
+        <ControlsUpdater controlsRef={controlsRef} />
+        <ControlsInitializer controlsRef={controlsRef} />
         <OrbitControls
           ref={controlsRef}
+          makeDefault
           enablePan={false}
           enableZoom
           zoomSpeed={0.8}
           enableDamping
           dampingFactor={0.08}
-          minDistance={RADIUS * 0.15}
-          maxDistance={RADIUS * 1.2}
+          minDistance={0.05}
+          maxDistance={RADIUS * 5}
         />
       </Canvas>
       {!stars.length ? (
@@ -135,18 +138,27 @@ function FocusController({
   useFrame((_, delta) => {
     if (!animating || !focus || !target) return;
 
-    const lerpFactor = reducedMotion ? 1 : Math.min(delta * 2, 1);
+    // Disable controls during animation to prevent interference
+    if (controlsRef?.current) {
+      controlsRef.current.enabled = false;
+    }
+
+    const lerpFactor = reducedMotion ? 1 : Math.min(delta * 3, 1);
     camera.position.lerp(focus, lerpFactor);
     if (controlsRef?.current) {
       controlsRef.current.target.lerp(target, lerpFactor);
       controlsRef.current.update();
     }
 
-    const camDone = camera.position.distanceTo(focus) < 0.1;
+    const camDone = camera.position.distanceTo(focus) < 0.5;
     const tgtDone = controlsRef?.current
-      ? controlsRef.current.target.distanceTo(target) < 0.1
+      ? controlsRef.current.target.distanceTo(target) < 0.5
       : true;
     if (camDone && tgtDone) {
+      // Re-enable controls after animation completes
+      if (controlsRef?.current) {
+        controlsRef.current.enabled = true;
+      }
       onFinish();
     }
   });
@@ -160,6 +172,26 @@ function HoverMarker({ position }: { position: Vector3 }) {
       <meshBasicMaterial color="#9bf6ff" transparent opacity={0.8} />
     </mesh>
   );
+}
+
+function ControlsUpdater({ controlsRef }: { controlsRef: any }) {
+  useFrame(() => {
+    if (controlsRef?.current?.enabled) {
+      controlsRef.current.update();
+    }
+  });
+  return null;
+}
+
+function ControlsInitializer({ controlsRef }: { controlsRef: any }) {
+  useFrame(() => {
+    if (controlsRef?.current) {
+      controlsRef.current.enableZoom = true;
+      controlsRef.current.enableDamping = true;
+      controlsRef.current.enableRotate = true;
+    }
+  });
+  return null;
 }
 
 function usePrefersReducedMotion() {

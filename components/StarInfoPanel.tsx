@@ -58,7 +58,7 @@ export function StarInfoPanel({
           className="flex-1 rounded-lg bg-accent-500 text-black font-semibold py-2 hover:bg-accent-400 transition"
           onClick={isPlaying ? onStop : onPlay}
         >
-          {isPlaying ? "Pause" : "Play"}
+          {isPlaying ? "Stop" : "Play"}
         </button>
         <button
           className="rounded-lg bg-white/10 hover:bg-white/20 px-3 py-2 text-sm transition"

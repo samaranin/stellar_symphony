@@ -7,14 +7,20 @@ type EngineState = {
   initialized: boolean;
   padSynth?: any;
   particleSynth?: any;
+  shimmerSynth?: any;
+  noise?: any;
+  delay?: any;
   reverb?: any;
   filter?: any;
+  lfo?: any;
   gain?: any;
   loop?: any;
+  arpLoop?: any;
   userVolume: number;
   lastBaseGain: number;
   _Transport?: any;
   _LoopCtor?: any;
+  _LFO?: any;
 };
 
 const state: EngineState = {
@@ -85,10 +91,13 @@ export async function initAudio() {
   const Transport = Tone.Transport ?? Tone.getTransport?.();
   const PolySynth = Tone.PolySynth;
   const Synth = Tone.Synth;
+  const Noise = Tone.Noise;
   const Reverb = Tone.Reverb;
   const Filter = Tone.Filter;
   const Gain = Tone.Gain;
   const Loop = Tone.Loop;
+  const LFO = Tone.LFO;
+  const FeedbackDelay = Tone.FeedbackDelay;
   const Destination =
     Tone.Destination ?? Tone.getDestination?.() ?? Tone.DestinationNode ?? Tone.context?.destination;
 
@@ -101,6 +110,11 @@ export async function initAudio() {
     envelope: { attack: 2.5, decay: 1.5, sustain: 0.7, release: 3.5 }
   });
 
+  const shimmerSynth = new PolySynth(Synth, {
+    oscillator: { type: "triangle" },
+    envelope: { attack: 0.4, decay: 1.4, sustain: 0.4, release: 3.5 }
+  });
+
   const particleSynth = new Synth({
     oscillator: { type: "triangle" },
     envelope: { attack: 0.01, decay: 0.3, sustain: 0.2, release: 0.8 }
@@ -111,21 +125,40 @@ export async function initAudio() {
     await reverb.generate();
   }
   const filter = new Filter(800, "lowpass");
+  const delay = FeedbackDelay ? new FeedbackDelay("8n", 0.25) : null;
+  const lfo = LFO ? new LFO({ frequency: 0.06, min: 400, max: 3200 }) : null;
+  if (lfo) lfo.connect(filter.frequency).start();
+
   const gain = new Gain(0.2);
 
-  padSynth.chain(filter, reverb, gain, Destination);
-  particleSynth.chain(filter, reverb, gain, Destination);
+  padSynth.chain(filter, reverb, delay ?? gain, gain, Destination);
+  shimmerSynth.chain(filter, reverb, delay ?? gain, gain, Destination);
+  particleSynth.chain(filter, reverb, delay ?? gain, gain, Destination);
+
+  const noise = Noise ? new Noise("pink") : null;
+  const noiseGain = noise ? new Gain(0.02) : null;
+  if (noise && noiseGain) {
+    noise.connect(noiseGain);
+    if (delay) noiseGain.chain(delay, gain, Destination);
+    else noiseGain.chain(reverb, gain, Destination);
+    noise.start();
+  }
 
   state.padSynth = padSynth;
   state.particleSynth = particleSynth;
+  state.shimmerSynth = shimmerSynth;
+  state.noise = noise;
+  state.delay = delay;
   state.reverb = reverb;
   state.filter = filter;
+  state.lfo = lfo;
   state.gain = gain;
   state.initialized = true;
 
   // store dynamic constructs for later reuse
   state._Transport = Transport;
   state._LoopCtor = Loop;
+  state._LFO = LFO;
 }
 
 export async function playForStar(star: StarRecord, seed = Math.random()) {
@@ -136,15 +169,24 @@ export async function playForStar(star: StarRecord, seed = Math.random()) {
 
   const params = mapStarToTone(star);
   state.lastBaseGain = params.gain;
-  const targetGain = state.lastBaseGain * state.userVolume;
-  state.gain.gain.rampTo(targetGain, 0.2);
-  state.filter.frequency.rampTo(params.filterCutoff, 0.4);
-  state.reverb.wet.rampTo(params.reverbWet, 0.5);
+  const targetGain = Math.max(0.001, Math.min(0.9, state.lastBaseGain * state.userVolume));
+  state.gain.gain.linearRampToValueAtTime(targetGain, (state._Transport?.seconds ?? 0) + 0.2);
+  state.filter.frequency.linearRampToValueAtTime(
+    Math.max(120, Math.min(8000, params.filterCutoff)),
+    (state._Transport?.seconds ?? 0) + 0.4
+  );
+  state.reverb.wet.linearRampToValueAtTime(
+    Math.max(0, Math.min(0.7, params.reverbWet)),
+    (state._Transport?.seconds ?? 0) + 0.5
+  );
 
-  const padNotes = buildPadChord(params.baseNote);
+  const progression = buildProgression(params.baseNote);
+  const padNotes = progression[0];
   const partNotes = buildParticleSequence(params.baseNote, seed, params.particleDensity);
+  const shimmerNotes = buildShimmerVoicing(params.baseNote + 12);
 
-  state.padSynth.triggerAttackRelease(padNotes, "2n");
+  state.padSynth.triggerAttackRelease(padNotes, "2m");
+  state.shimmerSynth?.triggerAttackRelease(shimmerNotes, "4m");
 
   disposeLoop();
 
@@ -154,10 +196,22 @@ export async function playForStar(star: StarRecord, seed = Math.random()) {
     throw new Error("Audio transport not initialized");
   }
 
+  let bar = 0;
   state.loop = new LoopCtor((time: number) => {
+    // particles
     const choice = partNotes[Math.floor(Math.random() * partNotes.length)];
-    state.particleSynth!.triggerAttackRelease(choice, "8n", time);
-  }, `${Math.max(4 - params.particleDensity * 6, 0.5)}n`);
+    state.particleSynth!.triggerAttackRelease(choice, "16n", time, 0.7 + Math.random() * 0.2);
+
+    // every 2 bars, move pad to next chord
+    if (bar % 8 === 0) {
+      const idx = (bar / 8) % progression.length;
+      const chord = progression[idx];
+      state.padSynth!.triggerAttackRelease(chord, "2m", time + 0.01, 0.8);
+      state.shimmerSynth?.triggerAttackRelease(shimmerNotes, "4m", time + 0.02, 0.6);
+    }
+
+    bar++;
+  }, "8n");
 
   state.loop.start(0);
   await Transport.start();
@@ -165,6 +219,18 @@ export async function playForStar(star: StarRecord, seed = Math.random()) {
 
 export function stopAudio() {
   disposeLoop();
+  
+  // Release all playing synth notes
+  if (state.padSynth) {
+    state.padSynth.releaseAll();
+  }
+  if (state.shimmerSynth) {
+    state.shimmerSynth.releaseAll();
+  }
+  if (state.particleSynth) {
+    state.particleSynth.triggerRelease();
+  }
+  
   const Transport = state._Transport;
   if (Transport) {
     Transport.stop();
@@ -183,6 +249,21 @@ export function setVolume(vol: number) {
 function buildPadChord(baseNote: number): string[] {
   const notes = [0, 4, 7, 11].map((interval) => baseNote + interval);
   return notes.map((n) => midiToNoteName(n));
+}
+
+function buildProgression(baseNote: number): string[][] {
+  const chords = [
+    [0, 4, 7, 11],
+    [2, 7, 9, 14],
+    [-3, 2, 7, 10],
+    [0, 5, 9, 12]
+  ];
+  return chords.map((intervals) => intervals.map((i) => midiToNoteName(baseNote + i)));
+}
+
+function buildShimmerVoicing(baseNote: number): string[] {
+  const intervals = [0, 7, 14];
+  return intervals.map((i) => midiToNoteName(baseNote + i));
 }
 
 function buildParticleSequence(base: number, seed: number, density: number): string[] {
@@ -221,5 +302,10 @@ function disposeLoop() {
     state.loop.stop();
     state.loop.dispose();
     state.loop = undefined;
+  }
+  if (state.arpLoop) {
+    state.arpLoop.stop();
+    state.arpLoop.dispose();
+    state.arpLoop = undefined;
   }
 }
