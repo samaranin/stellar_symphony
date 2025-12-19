@@ -2,12 +2,10 @@
 
 import { mapStarToTone } from "./mappings";
 import { 
-  generateProceduralMusic, 
-  midiToNoteName as proceduralMidiToNote, 
-  buildChordNotes,
-  Phrase,
-  ChordProgression,
-  GeneratorConfig
+  generateEnoAmbient,
+  generateProceduralMusic,
+  VoiceLoop,
+  GenerativeConfig
 } from "./procedural";
 import { StarRecord } from "@/lib/types";
 
@@ -115,29 +113,29 @@ export async function initAudio() {
 
   const padSynth = new PolySynth(Synth, {
     oscillator: { type: "sine" },
-    envelope: { attack: 2.5, decay: 1.5, sustain: 0.7, release: 3.5 }
+    envelope: { attack: 1.5, decay: 1.5, sustain: 0.7, release: 3.0 } // Faster attack, audible
   });
 
   const shimmerSynth = new PolySynth(Synth, {
-    oscillator: { type: "triangle" },
-    envelope: { attack: 0.4, decay: 1.4, sustain: 0.4, release: 3.5 }
+    oscillator: { type: "triangle" }, // Triangle for shimmer
+    envelope: { attack: 0.8, decay: 1.5, sustain: 0.5, release: 3.0 } // Faster attack
   });
 
   const particleSynth = new Synth({
-    oscillator: { type: "triangle" },
-    envelope: { attack: 0.01, decay: 0.3, sustain: 0.2, release: 0.8 }
+    oscillator: { type: "sine" }, // Sine for softer tone
+    envelope: { attack: 0.3, decay: 0.8, sustain: 0.3, release: 2.0 } // Slower, organic
   });
 
-  const reverb = new Reverb({ decay: 6, wet: 0.3 });
+  const reverb = new Reverb({ decay: 5, wet: 0.35 }); // Moderate reverb
   if (typeof reverb.generate === "function") {
     await reverb.generate();
   }
-  const filter = new Filter(800, "lowpass");
-  const delay = FeedbackDelay ? new FeedbackDelay("8n", 0.25) : null;
-  const lfo = LFO ? new LFO({ frequency: 0.06, min: 400, max: 3200 }) : null;
+  const filter = new Filter(1200, "lowpass"); // Higher cutoff for clarity
+  const delay = FeedbackDelay ? new FeedbackDelay("4n", 0.3) : null; // Slower delay
+  const lfo = LFO ? new LFO({ frequency: 0.03, min: 250, max: 1200 }) : null; // Slower, lower range
   if (lfo) lfo.connect(filter.frequency).start();
 
-  const gain = new Gain(0.2);
+  const gain = new Gain(0.5); // Audible base gain
 
   padSynth.chain(filter, reverb, delay ?? gain, gain, Destination);
   shimmerSynth.chain(filter, reverb, delay ?? gain, gain, Destination);
@@ -175,30 +173,28 @@ export async function playForStar(star: StarRecord, seed = Math.random()) {
     throw new Error("Audio not initialized");
   }
 
-  // Use the new procedural generation system (Markov chains + Genetic Algorithm)
-  const proceduralData = generateProceduralMusic(star, seed);
-  const { melody, harmony, bassline, chords, config } = proceduralData;
+  // Use Eno-style ambient generation
+  const enoConfig = generateEnoAmbient(star, seed);
+  const { voices, warmth, spaciousness } = enoConfig;
 
-  // Also get the original mappings for effects parameters
+  // Get effect parameters
   const params = mapStarToTone(star);
   state.lastBaseGain = params.gain;
-  const targetGain = Math.max(0.001, Math.min(0.9, state.lastBaseGain * state.userVolume));
+  const targetGain = Math.max(0.2, Math.min(0.9, state.lastBaseGain * state.userVolume * 1.5));
   state.gain.gain.linearRampToValueAtTime(targetGain, (state._Transport?.seconds ?? 0) + 0.2);
+  
+  // Filter - keep it open enough to hear
+  const filterFreq = 800 + (1 - warmth) * 1200; // 800-2000Hz range
   state.filter.frequency.linearRampToValueAtTime(
-    Math.max(120, Math.min(8000, params.filterCutoff)),
+    filterFreq,
     (state._Transport?.seconds ?? 0) + 0.4
   );
+  
+  // Reverb
   state.reverb.wet.linearRampToValueAtTime(
-    Math.max(0, Math.min(0.7, params.reverbWet)),
+    Math.min(0.5, 0.2 + spaciousness * 0.4),
     (state._Transport?.seconds ?? 0) + 0.5
   );
-
-  // Build initial chord from the evolved progression
-  const initialChordNotes = buildChordNotes(chords.roots[0], chords.qualities[0]);
-  const shimmerNotes = buildShimmerVoicing(config.baseNote + 12);
-
-  state.padSynth.triggerAttackRelease(initialChordNotes, "2m");
-  state.shimmerSynth?.triggerAttackRelease(shimmerNotes, "4m");
 
   disposeLoop();
 
@@ -208,63 +204,52 @@ export async function playForStar(star: StarRecord, seed = Math.random()) {
     throw new Error("Audio transport not initialized");
   }
 
-  // Track playback state for evolved phrases
-  let step = 0;
-  let chordIndex = 0;
-  let melodyIndex = 0;
-  let harmonyIndex = 0;
-  let bassIndex = 0;
-  const stepsPerBeat = 2; // 8th notes
+  // Simple approach: schedule notes directly using Transport
+  const voiceLoops: any[] = [];
   
-  state.loop = new LoopCtor((time: number) => {
-    const beat = step / stepsPerBeat;
+  for (let i = 0; i < voices.length; i++) {
+    const voice = voices[i];
+    const synth = i < 2 ? state.padSynth : state.shimmerSynth || state.padSynth;
+    const baseVelocity = voice.velocity;
+    const cycleDuration = voice.cycleDuration;
     
-    // Play evolved melody notes (particle synth)
-    if (melodyIndex < melody.notes.length) {
-      const note = midiToNoteName(melody.notes[melodyIndex]);
-      const velocity = melody.velocities[melodyIndex];
-      const duration = `${Math.max(0.125, melody.durations[melodyIndex] / 2)}n`;
-      
-      // Trigger on appropriate subdivisions based on duration
-      if (step % Math.max(1, Math.round(melody.durations[melodyIndex] * stepsPerBeat)) === 0) {
-        state.particleSynth!.triggerAttackRelease(note, duration, time, velocity * 0.8);
-        melodyIndex = (melodyIndex + 1) % melody.notes.length;
+    // Schedule each note in the voice's cycle, repeating
+    const scheduleVoiceCycle = (cycleStart: number) => {
+      for (let j = 0; j < voice.notes.length; j++) {
+        const note = voice.notes[j];
+        const noteTime = cycleStart + voice.notePositions[j] * cycleDuration;
+        const velocity = Math.min(1.0, baseVelocity * 1.8); // Strong but not clipping
+        const duration = 3 + Math.random() * 2; // 3-5 seconds
+        
+        Transport.schedule((time: number) => {
+          synth.triggerAttackRelease(note, duration, time, velocity);
+        }, noteTime);
       }
-    }
-
-    // Play harmony layer (shimmer synth) - slower, every 4 beats
-    if (step % (stepsPerBeat * 4) === 0 && harmonyIndex < harmony.notes.length) {
-      const note = midiToNoteName(harmony.notes[harmonyIndex]);
-      const velocity = harmony.velocities[harmonyIndex];
-      state.shimmerSynth?.triggerAttackRelease(note, "2n", time + 0.02, velocity * 0.5);
-      harmonyIndex = (harmonyIndex + 1) % harmony.notes.length;
-    }
-
-    // Play bass notes - every 2 beats
-    if (step % (stepsPerBeat * 2) === 0 && bassIndex < bassline.notes.length) {
-      const note = midiToNoteName(bassline.notes[bassIndex]);
-      const velocity = bassline.velocities[bassIndex];
-      // Bass through pad synth with long release
-      const bassNotes = [note];
-      state.padSynth!.triggerAttackRelease(bassNotes, "1n", time, velocity * 0.6);
-      bassIndex = (bassIndex + 1) % bassline.notes.length;
-    }
-
-    // Change chords based on progression - every 8 beats (2 bars)
-    if (step % (stepsPerBeat * 8) === 0) {
-      chordIndex = (chordIndex + 1) % chords.roots.length;
-      const chordNotes = buildChordNotes(chords.roots[chordIndex], chords.qualities[chordIndex]);
-      state.padSynth!.triggerAttackRelease(chordNotes, "2m", time + 0.01, 0.7);
       
-      // Also trigger shimmer on chord changes
-      const shimmer = buildShimmerVoicing(chords.roots[chordIndex] + 12);
-      state.shimmerSynth?.triggerAttackRelease(shimmer, "4m", time + 0.02, 0.5);
-    }
+      // Schedule next cycle
+      Transport.schedule(() => {
+        scheduleVoiceCycle(cycleStart + cycleDuration);
+      }, cycleStart + cycleDuration - 0.1);
+    };
+    
+    // Start first cycle immediately
+    scheduleVoiceCycle(0);
+  }
+  
+  // Play an immediate chord so user hears something right away
+  const firstVoice = voices[0];
+  if (firstVoice && firstVoice.notes.length > 0) {
+    const immediateNotes = firstVoice.notes.slice(0, 2);
+    state.padSynth.triggerAttackRelease(immediateNotes, 4, "+0.1", 0.6);
+  }
+  
+  // Store empty loop for cleanup compatibility  
+  state.loop = new LoopCtor(() => {}, "1m");
+  state.arpLoop = { 
+    stop: () => {},
+    dispose: () => {} 
+  };
 
-    step++;
-  }, "8n");
-
-  state.loop.start(0);
   await Transport.start();
 }
 
@@ -313,7 +298,7 @@ function buildProgression(baseNote: number): string[][] {
 }
 
 function buildShimmerVoicing(baseNote: number): string[] {
-  const intervals = [0, 7, 14];
+  const intervals = [0, 5, 7]; // Fourth and fifth - warmer, closer intervals
   return intervals.map((i) => midiToNoteName(baseNote + i));
 }
 

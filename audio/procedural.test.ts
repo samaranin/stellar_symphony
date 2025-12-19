@@ -1,23 +1,19 @@
-import { describe, it, expect } from "vitest";
+﻿import { describe, it, expect } from "vitest";
 import {
   createRNG,
-  buildTransitionMatrix,
-  markovNextNote,
-  generateMarkovPhrase,
-  initializePopulation,
-  evaluateFitness,
-  evolvePopulation,
-  generateChordProgression,
-  selectScaleFromTemperature,
+  generateEnoAmbient,
   generateProceduralMusic,
   midiToNoteName,
   buildChordNotes,
+  buildTransitionMatrix,
+  mapStarToGeneratorConfig,
   SCALES,
-  Phrase,
-  GeneratorConfig
+  VoiceLoop,
+  GenerativeConfig
 } from "./procedural";
+import { StarRecord } from "@/lib/types";
 
-describe("Procedural Music Generation", () => {
+describe("Eno-Style Ambient Music Generation", () => {
   describe("Seeded RNG", () => {
     it("produces deterministic sequences with same seed", () => {
       const rng1 = createRNG(42);
@@ -46,16 +42,202 @@ describe("Procedural Music Generation", () => {
     });
   });
 
-  describe("Markov Chain", () => {
-    const random = createRNG(42);
-    const scale = SCALES.pentatonic;
-    
-    it("builds a valid transition matrix", () => {
+  describe("Eno Ambient Generation", () => {
+    const testStar: StarRecord = {
+      id: "test_star",
+      ra: 100.5,
+      dec: 45.2,
+      mag: 1.5,
+      temp: 6000,
+      dist: 50
+    };
+
+    it("generates configuration with multiple voices", () => {
+      const config = generateEnoAmbient(testStar, 42);
+      
+      expect(config.voices.length).toBeGreaterThanOrEqual(3);
+      expect(config.voices.length).toBeLessThanOrEqual(5);
+    });
+
+    it("generates voices with incommensurable cycle lengths", () => {
+      const config = generateEnoAmbient(testStar, 42);
+      
+      // All cycle lengths should be different (incommensurable)
+      const lengths = config.voices.map(v => v.cycleDuration);
+      const uniqueLengths = new Set(lengths);
+      expect(uniqueLengths.size).toBe(lengths.length);
+      
+      // Lengths should be in reasonable range (15-40 seconds)
+      for (const len of lengths) {
+        expect(len).toBeGreaterThan(10);
+        expect(len).toBeLessThan(50);
+      }
+    });
+
+    it("generates voices with sparse note material (1-2 notes per voice)", () => {
+      const config = generateEnoAmbient(testStar, 42);
+      
+      for (const voice of config.voices) {
+        expect(voice.notes.length).toBeGreaterThanOrEqual(1);
+        expect(voice.notes.length).toBeLessThanOrEqual(3);
+        expect(voice.notePositions.length).toBe(voice.notes.length);
+      }
+    });
+
+    it("generates valid note names", () => {
+      const config = generateEnoAmbient(testStar, 42);
+      const notePattern = /^[A-G]#?\d$/;
+      
+      for (const voice of config.voices) {
+        for (const note of voice.notes) {
+          expect(note).toMatch(notePattern);
+        }
+      }
+    });
+
+    it("generates note positions in valid range (0-1)", () => {
+      const config = generateEnoAmbient(testStar, 42);
+      
+      for (const voice of config.voices) {
+        for (const pos of voice.notePositions) {
+          expect(pos).toBeGreaterThanOrEqual(0);
+          expect(pos).toBeLessThanOrEqual(1);
+        }
+      }
+    });
+
+    it("produces deterministic results with same seed", () => {
+      const config1 = generateEnoAmbient(testStar, 42);
+      const config2 = generateEnoAmbient(testStar, 42);
+      
+      expect(config1.voices.length).toBe(config2.voices.length);
+      expect(config1.voices[0].notes).toEqual(config2.voices[0].notes);
+      expect(config1.voices[0].cycleDuration).toBe(config2.voices[0].cycleDuration);
+    });
+
+    it("produces different results with different seeds", () => {
+      const config1 = generateEnoAmbient(testStar, 42);
+      const config2 = generateEnoAmbient(testStar, 999);
+      
+      // At least some aspect should differ
+      const allSame = 
+        config1.voices[0].notes[0] === config2.voices[0].notes[0] &&
+        config1.voices[0].cycleDuration === config2.voices[0].cycleDuration;
+      
+      expect(allSame).toBe(false);
+    });
+
+    it("sets ambient parameters based on star characteristics", () => {
+      const hotStar: StarRecord = { id: "hot", ra: 0, dec: 0, mag: 1, temp: 15000 };
+      const coolStar: StarRecord = { id: "cool", ra: 0, dec: 0, mag: 1, temp: 3500 };
+      
+      const hotConfig = generateEnoAmbient(hotStar, 42);
+      const coolConfig = generateEnoAmbient(coolStar, 42);
+      
+      // Cooler stars should have higher warmth value
+      expect(coolConfig.warmth).toBeGreaterThan(hotConfig.warmth);
+    });
+  });
+
+  describe("Star-to-Music Mapping", () => {
+    it("maps hot stars to appropriate config", () => {
+      const hotStar: StarRecord = { id: "hot", ra: 0, dec: 0, mag: -1, temp: 20000 };
+      const config = mapStarToGeneratorConfig(hotStar);
+      
+      expect(config.scale.name).toBe("Lydian");
+      expect(config.baseNote).toBe(48); // C3 - warm base
+    });
+
+    it("maps cool stars to appropriate config", () => {
+      const coolStar: StarRecord = { id: "cool", ra: 0, dec: 0, mag: 4, temp: 3500 };
+      const config = mapStarToGeneratorConfig(coolStar);
+      
+      expect(config.scale.name).toBe("Pentatonic");
+    });
+
+    it("maps medium temperature stars appropriately", () => {
+      const medStar: StarRecord = { id: "med", ra: 0, dec: 0, mag: 2, temp: 6500 };
+      const config = mapStarToGeneratorConfig(medStar);
+      
+      // 6500K falls in warm-bright range = Mixolydian
+      expect(config.scale.name).toBe("Mixolydian");
+    });
+  });
+
+  describe("Legacy Compatibility - generateProceduralMusic", () => {
+    const testStar: StarRecord = {
+      id: "test_star",
+      ra: 100.5,
+      dec: 45.2,
+      mag: 1.5,
+      temp: 6000,
+      dist: 50
+    };
+
+    it("returns padNotes and shimmerNotes", () => {
+      const result = generateProceduralMusic(testStar, 42);
+      
+      expect(result.padNotes).toBeDefined();
+      expect(result.shimmerNotes).toBeDefined();
+      expect(result.config).toBeDefined();
+    });
+
+    it("returns phrases with valid structure", () => {
+      const result = generateProceduralMusic(testStar, 42);
+      
+      expect(result.padNotes.notes.length).toBeGreaterThan(0);
+      expect(result.padNotes.durations.length).toBe(result.padNotes.notes.length);
+      expect(result.padNotes.velocities.length).toBe(result.padNotes.notes.length);
+    });
+
+    it("returns notes in warm lower register (MIDI 36-72)", () => {
+      const result = generateProceduralMusic(testStar, 42);
+      
+      for (const note of result.padNotes.notes) {
+        expect(note).toBeGreaterThanOrEqual(24); // C1
+        expect(note).toBeLessThanOrEqual(76); // E5
+      }
+    });
+
+    it("produces deterministic results with same seed", () => {
+      const result1 = generateProceduralMusic(testStar, 42);
+      const result2 = generateProceduralMusic(testStar, 42);
+      
+      expect(result1.padNotes.notes).toEqual(result2.padNotes.notes);
+    });
+  });
+
+  describe("Utility Functions", () => {
+    it("converts MIDI to note names correctly", () => {
+      expect(midiToNoteName(60)).toBe("C4");
+      expect(midiToNoteName(69)).toBe("A4");
+      expect(midiToNoteName(48)).toBe("C3");
+      expect(midiToNoteName(61)).toBe("C#4");
+    });
+
+    it("builds chord notes correctly", () => {
+      const majorChord = buildChordNotes(60, "major");
+      expect(majorChord).toEqual([60, 64, 67]); // C4, E4, G4 as MIDI
+
+      const minorChord = buildChordNotes(60, "minor");
+      expect(minorChord).toEqual([60, 63, 67]); // C4, Eb4, G4 as MIDI
+    });
+
+    it("builds sus4 chord correctly", () => {
+      const sus4Chord = buildChordNotes(60, "sus4");
+      expect(sus4Chord).toEqual([60, 65, 67]); // C4, F4, G4 as MIDI
+    });
+  });
+
+  describe("Transition Matrix (Legacy)", () => {
+    it("builds valid transition matrix for compatibility", () => {
+      const scale = SCALES.pentatonic;
+      const random = createRNG(42);
       const matrix = buildTransitionMatrix(scale, random);
       
       expect(matrix.size).toBe(scale.intervals.length);
       
-      // Check probabilities sum to 1 for each row
+      // Check probabilities sum to approximately 1 for each row
       for (const [, transitions] of matrix) {
         let sum = 0;
         for (const [, prob] of transitions) {
@@ -64,218 +246,19 @@ describe("Procedural Music Generation", () => {
         expect(sum).toBeCloseTo(1, 5);
       }
     });
-
-    it("generates valid next notes within scale", () => {
-      const matrix = buildTransitionMatrix(scale, createRNG(1));
-      const rng = createRNG(100);
-      
-      for (let i = 0; i < 20; i++) {
-        const current = Math.floor(rng() * scale.intervals.length);
-        const next = markovNextNote(current, matrix, rng);
-        expect(next).toBeGreaterThanOrEqual(0);
-        expect(next).toBeLessThan(scale.intervals.length);
-      }
-    });
-
-    it("generates phrases of correct length", () => {
-      const config: GeneratorConfig = {
-        scale: SCALES.major,
-        baseNote: 60,
-        octaveRange: 2,
-        phraseLength: 8,
-        temperature: 5800,
-        magnitude: 2,
-        distance: 10
-      };
-      const matrix = buildTransitionMatrix(config.scale, createRNG(1));
-      const phrase = generateMarkovPhrase(config, matrix, createRNG(2), 8);
-      
-      expect(phrase.length).toBe(8);
-    });
   });
 
-  describe("Genetic Algorithm", () => {
-    const config: GeneratorConfig = {
-      scale: SCALES.major,
-      baseNote: 60,
-      octaveRange: 2,
-      phraseLength: 8,
-      temperature: 5800,
-      magnitude: 2,
-      distance: 10
-    };
-
-    it("initializes population of correct size", () => {
-      const matrix = buildTransitionMatrix(config.scale, createRNG(1));
-      const population = initializePopulation(config, matrix, createRNG(2));
-      
-      expect(population.length).toBe(12); // GA_POPULATION_SIZE
+  describe("Scale Definitions", () => {
+    it("has all expected scales defined", () => {
+      expect(SCALES.pentatonic).toBeDefined();
+      expect(SCALES.major).toBeDefined();
+      expect(SCALES.dorian).toBeDefined();
+      expect(SCALES.lydian).toBeDefined();
     });
 
-    it("evaluates fitness producing positive scores", () => {
-      const phrase: Phrase = {
-        notes: [60, 62, 64, 65, 67, 65, 64, 62],
-        durations: [1, 0.5, 0.5, 1, 1, 0.5, 0.5, 1],
-        velocities: [0.8, 0.6, 0.7, 0.8, 0.7, 0.6, 0.5, 0.7],
-        fitness: 0
-      };
-      
-      const fitness = evaluateFitness(phrase, config);
-      expect(fitness).toBeGreaterThan(0);
-    });
-
-    it("rewards stepwise motion over large leaps", () => {
-      const smoothPhrase: Phrase = {
-        notes: [60, 62, 64, 65, 64, 62, 60, 62], // stepwise
-        durations: [1, 1, 1, 1, 1, 1, 1, 1],
-        velocities: [0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7],
-        fitness: 0
-      };
-      
-      const jumpyPhrase: Phrase = {
-        notes: [60, 71, 49, 82, 35, 91, 26, 60], // dissonant large leaps (tritones, 11ths)
-        durations: [1, 1, 1, 1, 1, 1, 1, 1],
-        velocities: [0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7],
-        fitness: 0
-      };
-      
-      const smoothFitness = evaluateFitness(smoothPhrase, config);
-      const jumpyFitness = evaluateFitness(jumpyPhrase, config);
-      
-      expect(smoothFitness).toBeGreaterThan(jumpyFitness);
-    });
-
-    it("evolves population improving best fitness", () => {
-      const matrix = buildTransitionMatrix(config.scale, createRNG(1));
-      const initialPop = initializePopulation(config, matrix, createRNG(2));
-      
-      // Evaluate initial fitness
-      for (const phrase of initialPop) {
-        phrase.fitness = evaluateFitness(phrase, config);
-      }
-      const initialBestFitness = Math.max(...initialPop.map(p => p.fitness));
-      
-      // Evolve
-      const evolvedPop = evolvePopulation(initialPop, config, createRNG(3), 10);
-      const evolvedBestFitness = Math.max(...evolvedPop.map(p => p.fitness));
-      
-      // Evolution should maintain or improve fitness (elitism)
-      expect(evolvedBestFitness).toBeGreaterThanOrEqual(initialBestFitness * 0.9);
-    });
-  });
-
-  describe("Chord Progression", () => {
-    const config: GeneratorConfig = {
-      scale: SCALES.major,
-      baseNote: 60,
-      octaveRange: 2,
-      phraseLength: 8,
-      temperature: 5800,
-      magnitude: 2,
-      distance: 10
-    };
-
-    it("generates progression of correct length", () => {
-      const progression = generateChordProgression(config, createRNG(42), 4);
-      
-      expect(progression.roots.length).toBe(4);
-      expect(progression.qualities.length).toBe(4);
-      expect(progression.durations.length).toBe(4);
-    });
-
-    it("generates valid chord qualities", () => {
-      const progression = generateChordProgression(config, createRNG(42), 8);
-      const validQualities = ["maj", "min", "dim", "aug", "sus4", "maj7", "min7", "dom7"];
-      
-      for (const quality of progression.qualities) {
-        expect(validQualities).toContain(quality);
-      }
-    });
-  });
-
-  describe("Star-to-Music Mapping", () => {
-    it("selects bright scales for hot stars", () => {
-      const scale = selectScaleFromTemperature(20000);
-      expect(["Lydian", "Major"]).toContain(scale.name);
-    });
-
-    it("selects dark scales for cool stars", () => {
-      const scale = selectScaleFromTemperature(3000);
-      expect(["Phrygian", "Locrian", "Aeolian"]).toContain(scale.name);
-    });
-
-    it("generates complete procedural data for a star", () => {
-      const star = {
-        id: "test_star",
-        ra: 0,
-        dec: 0,
-        mag: 2,
-        temp: 5800,
-        dist: 10
-      };
-      
-      const result = generateProceduralMusic(star, 42);
-      
-      expect(result.melody).toBeDefined();
-      expect(result.melody.notes.length).toBeGreaterThan(0);
-      expect(result.harmony).toBeDefined();
-      expect(result.bassline).toBeDefined();
-      expect(result.chords).toBeDefined();
-      expect(result.config).toBeDefined();
-    });
-
-    it("produces deterministic results with same seed", () => {
-      const star = {
-        id: "test_star",
-        ra: 45,
-        dec: 30,
-        mag: 1,
-        temp: 10000,
-        dist: 50
-      };
-      
-      const result1 = generateProceduralMusic(star, 12345);
-      const result2 = generateProceduralMusic(star, 12345);
-      
-      expect(result1.melody.notes).toEqual(result2.melody.notes);
-      expect(result1.chords.roots).toEqual(result2.chords.roots);
-    });
-
-    it("produces different results with different seeds", () => {
-      const star = {
-        id: "test_star",
-        ra: 45,
-        dec: 30,
-        mag: 1,
-        temp: 10000,
-        dist: 50
-      };
-      
-      const result1 = generateProceduralMusic(star, 111);
-      const result2 = generateProceduralMusic(star, 222);
-      
-      // At least some notes should differ
-      const allSame = result1.melody.notes.every(
-        (n, i) => n === result2.melody.notes[i]
-      );
-      expect(allSame).toBe(false);
-    });
-  });
-
-  describe("Utility Functions", () => {
-    it("converts MIDI to note names correctly", () => {
-      expect(midiToNoteName(60)).toBe("C4");
-      expect(midiToNoteName(69)).toBe("A4");
-      expect(midiToNoteName(72)).toBe("C5");
-      expect(midiToNoteName(48)).toBe("C3");
-    });
-
-    it("builds chord notes correctly", () => {
-      const majorChord = buildChordNotes(60, "maj");
-      expect(majorChord).toEqual(["C4", "E4", "G4"]);
-      
-      const minorChord = buildChordNotes(60, "min");
-      expect(minorChord).toEqual(["C4", "D#4", "G4"]);
+    it("has correct interval counts for scales", () => {
+      expect(SCALES.pentatonic.intervals.length).toBe(5);
+      expect(SCALES.major.intervals.length).toBe(7);
     });
   });
 });

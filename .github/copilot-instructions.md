@@ -81,7 +81,13 @@ const desiredCamera = dir * (R * 0.6);  // Factor 0.6 for comfortable zoom
 const desiredTarget = starPosition * 0.98;
 ```
 
-### Procedural Music Architecture
+### Procedural Music Architecture (Brian Eno-Inspired)
+
+Based on Brian Eno's "Music for Airports" technique:
+- Multiple independent loops with INCOMMENSURABLE cycle lengths (never sync)
+- Sparse note material that combines in ever-changing configurations  
+- Focus on texture and warmth over melody
+- "As ignorable as it is interesting"
 
 ```
 ┌─────────────────────────────────────────────────────────┐
@@ -91,33 +97,29 @@ const desiredTarget = starPosition * 0.98;
                          │
                          ▼
 ┌─────────────────────────────────────────────────────────┐
-│              mapStarToGeneratorConfig()                  │
-│  - Scale selection (pentatonic → chromatic)              │
-│  - Note density, phrase length                           │
-│  - Mutation rate, crossover rate                         │
+│              generateEnoAmbient(star, seed)              │
+│  - Warm consonant note palettes (C2-C4 range)            │
+│  - Prime-ratio cycle lengths (never repeat exactly)      │
+│  - 3-5 voices with 1-2 sparse notes each                 │
 └────────────────────────┬────────────────────────────────┘
-                         │
-          ┌──────────────┴──────────────┐
-          │                             │
-          ▼                             ▼
-┌─────────────────────┐     ┌─────────────────────┐
-│   Markov Chains     │     │  Genetic Algorithm  │
-│ - Transition matrix │     │ - Population: 12    │
-│ - Scale-aware       │     │ - Generations: 8    │
-│ - Weighted probs    │     │ - Fitness scoring   │
-└─────────┬───────────┘     └──────────┬──────────┘
-          │                            │
-          └──────────────┬─────────────┘
                          │
                          ▼
 ┌─────────────────────────────────────────────────────────┐
-│              generateProceduralMusic()                   │
-│  Returns: { padNotes, shimmerNotes }                     │
+│           Incommensurable Voice Loops                    │
+│  Voice 1: [C2, E3] every 18.2s                           │
+│  Voice 2: [G2] every 19.9s                               │
+│  Voice 3: [C3, A3] every 21.4s                           │
+│  Voice 4: [E3] every 24.5s                               │
+│  (Cycle lengths based on prime ratios + jitter)          │
 └────────────────────────┬────────────────────────────────┘
                          │
                          ▼
 ┌─────────────────────────────────────────────────────────┐
 │                   Tone.js Engine                         │
+│  - PolySynth with sine waves (warm, no harsh harmonics)  │
+│  - Long attack (4s), long release (5s)                   │
+│  - Lowpass filter (200-800Hz for warmth)                 │
+│  - Reverb + Delay for spaciousness                       │
 │  - PolySynth (pad layer, shimmer layer)                  │
 │  - Effects: Reverb, Filter, FeedbackDelay                │
 │  - Star params → filter cutoff, reverb, gain             │
@@ -238,7 +240,7 @@ npm run test
 Current test coverage:
 - `lib/astro.test.ts` — 3 tests (RA/Dec conversion, clamping)
 - `audio/mappings.test.ts` — 3 tests (parameter mapping)
-- `audio/procedural.test.ts` — 19 tests (Markov, GA, fitness)
+- `audio/procedural.test.ts` — 24 tests (Eno-style ambient, voice loops, determinism)
 
 ---
 
@@ -263,12 +265,14 @@ Current test coverage:
   - Arcturus: https://en.wikipedia.org/wiki/Arcturus
 
 ### Procedural Music Algorithms
-- **Markov Chains in Music**
-  - Wikipedia: https://en.wikipedia.org/wiki/Markov_chain#Music
-  - Applications in algorithmic composition
-- **Genetic Algorithms**
-  - Holland, J.H. (1975). "Adaptation in Natural and Artificial Systems"
-  - Used for phrase evolution with fitness-based selection
+- **Brian Eno's Generative Music**
+  - "Music for Airports" (1978) — Tape loops of incommensurable lengths
+  - Wikipedia: https://en.wikipedia.org/wiki/Brian_Eno#Ambient_music
+  - Key insight: Loops of 23.5s, 25.875s, 29.9375s never sync, creating ever-changing combinations
+  - "As ignorable as it is interesting" — Eno's definition of ambient
+- **Generative Music Systems**
+  - Wikipedia: https://en.wikipedia.org/wiki/Generative_music
+  - Algorithmic composition using rules and randomness
 
 ### Technologies
 - **Three.js**: https://threejs.org/
