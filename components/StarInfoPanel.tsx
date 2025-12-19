@@ -5,13 +5,24 @@ import { StarRecord } from "@/lib/types";
 type Props = {
   star?: StarRecord;
   isPlaying: boolean;
+  volume: number;
   onPlay: () => void;
   onStop: () => void;
   onReseed: () => void;
+  onVolumeChange: (value: number) => void;
   onClose: () => void;
 };
 
-export function StarInfoPanel({ star, isPlaying, onPlay, onStop, onReseed, onClose }: Props) {
+export function StarInfoPanel({
+  star,
+  isPlaying,
+  volume,
+  onPlay,
+  onStop,
+  onReseed,
+  onVolumeChange,
+  onClose
+}: Props) {
   if (!star) {
     return (
       <div className="panel p-4 text-sm space-y-2">
@@ -55,6 +66,22 @@ export function StarInfoPanel({ star, isPlaying, onPlay, onStop, onReseed, onClo
         >
           Re-seed
         </button>
+      </div>
+
+      <div className="space-y-1">
+        <div className="flex items-center justify-between text-xs text-gray-400">
+          <span>Volume</span>
+          <span>{Math.round(volume * 100)}%</span>
+        </div>
+        <input
+          type="range"
+          min={0}
+          max={1}
+          step={0.05}
+          value={volume}
+          onChange={(e) => onVolumeChange(Number(e.target.value))}
+          className="w-full accent-accent-500"
+        />
       </div>
     </div>
   );

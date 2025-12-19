@@ -5,7 +5,7 @@ import { SkyScene } from "@/components/SkyScene";
 import { ControlsBar } from "@/components/ControlsBar";
 import { StarInfoPanel } from "@/components/StarInfoPanel";
 import { Constellation, StarRecord, StarSelection } from "@/lib/types";
-import { initAudio, isRunning, playForStar, stopAudio } from "@/audio/engine";
+import { initAudio, playForStar, setVolume, stopAudio } from "@/audio/engine";
 
 export default function Page() {
   const [stars, setStars] = useState<StarRecord[]>([]);
@@ -15,8 +15,12 @@ export default function Page() {
   const [error, setError] = useState<string>();
   const [showConstellations, setShowConstellations] = useState(true);
   const [playing, setPlaying] = useState(false);
+  const [volume, setVolumeState] = useState(0.8);
 
   useEffect(() => {
+    const stored = typeof window !== "undefined" ? localStorage.getItem("showConstellations") : null;
+    if (stored) setShowConstellations(stored === "true");
+
     const load = async () => {
       try {
         const [starsRes, constRes] = await Promise.all([
@@ -38,9 +42,16 @@ export default function Page() {
     load();
   }, []);
 
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      localStorage.setItem("showConstellations", String(showConstellations));
+    }
+  }, [showConstellations]);
+
   const handlePlay = async () => {
     if (!selection) return;
     await initAudio();
+    setVolume(volume);
     await playForStar(selection.star, Math.random());
     setPlaying(true);
   };
@@ -52,13 +63,19 @@ export default function Page() {
 
   const handleReseed = async () => {
     if (!selection) return;
+    setVolume(volume);
     await playForStar(selection.star, Math.random());
     setPlaying(true);
   };
 
+  const handleVolume = (value: number) => {
+    setVolumeState(value);
+    setVolume(value);
+  };
+
   if (loading) {
     return (
-      <main className="max-w-6xl mx-auto p-6">
+      <main className="min-h-screen flex items-center justify-center">
         <h1 className="text-2xl font-semibold">Stellar Symphony</h1>
         <p className="text-gray-400 mt-4">Loading stars...</p>
       </main>
@@ -67,7 +84,7 @@ export default function Page() {
 
   if (error) {
     return (
-      <main className="max-w-4xl mx-auto p-6">
+      <main className="min-h-screen flex items-center justify-center">
         <h1 className="text-2xl font-semibold">Stellar Symphony</h1>
         <p className="text-red-300 mt-4">{error}</p>
       </main>
@@ -75,17 +92,7 @@ export default function Page() {
   }
 
   return (
-    <main className="max-w-6xl mx-auto p-4 md:p-8 space-y-4">
-      <header className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-        <div>
-          <p className="text-xs uppercase tracking-[0.2em] text-gray-400">Static WebGL Audio</p>
-          <h1 className="text-3xl font-bold">Stellar Symphony</h1>
-          <p className="text-gray-400">
-            Explore a curated sky sphere, focus on stars, and hear their ambient signatures.
-          </p>
-        </div>
-      </header>
-
+    <main className="relative min-h-screen overflow-hidden">
       <SkyScene
         stars={stars}
         constellations={constellations}
@@ -93,25 +100,43 @@ export default function Page() {
         showConstellations={showConstellations}
       />
 
-      <div className="grid md:grid-cols-[1fr,320px] gap-4 items-start">
-        <ControlsBar
-          showConstellations={showConstellations}
-          onToggleConstellations={() => setShowConstellations((v) => !v)}
-          onReset={() => setSelection(undefined)}
-          constellations={constellations}
-        />
-        <StarInfoPanel
-          star={selection?.star}
-          isPlaying={playing}
-          onPlay={handlePlay}
-          onStop={handleStop}
-          onReseed={handleReseed}
-          onClose={() => {
-            setSelection(undefined);
-            setPlaying(false);
-            stopAudio();
-          }}
-        />
+      <div className="pointer-events-none absolute inset-0">
+        <div className="pointer-events-auto absolute top-4 left-4 max-w-xl space-y-3">
+          <header className="panel px-4 py-3 space-y-1">
+            <p className="text-xs uppercase tracking-[0.2em] text-gray-400">Static WebGL Audio</p>
+            <h1 className="text-2xl font-bold">Stellar Symphony</h1>
+            <p className="text-gray-300 text-sm">
+              Explore the sky from within, focus on stars, and hear their ambient signatures.
+            </p>
+          </header>
+          <ControlsBar
+            showConstellations={showConstellations}
+            onToggleConstellations={() => setShowConstellations((v) => !v)}
+            onReset={() => {
+              setSelection(undefined);
+              setPlaying(false);
+              stopAudio();
+            }}
+            constellations={constellations}
+          />
+        </div>
+
+        <div className="pointer-events-auto absolute top-4 right-4 w-full max-w-sm">
+          <StarInfoPanel
+            star={selection?.star}
+            isPlaying={playing}
+            volume={volume}
+            onPlay={handlePlay}
+            onStop={handleStop}
+            onReseed={handleReseed}
+            onVolumeChange={handleVolume}
+            onClose={() => {
+              setSelection(undefined);
+              setPlaying(false);
+              stopAudio();
+            }}
+          />
+        </div>
       </div>
     </main>
   );

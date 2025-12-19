@@ -4,7 +4,8 @@ const nextConfig = {
   experimental: {
     typedRoutes: true
   },
-  output: "export"
+  output: "export",
+  transpilePackages: ["tone"]
 };
 
 export default nextConfig;

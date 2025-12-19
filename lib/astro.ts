@@ -57,3 +57,11 @@ export function annotateStarsWithPosition(stars: StarRecord[], radius: number) {
     position: raDecToXYZ(star.ra, star.dec, radius)
   }));
 }
+
+export function focusFromPosition(pos: Vec3, radius: number, factor = 1.6) {
+  const dir = normalize(pos);
+  return {
+    camera: scale(dir, radius * factor),
+    target: pos
+  };
+}

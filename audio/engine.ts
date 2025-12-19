@@ -1,41 +1,120 @@
-import * as Tone from "tone";
+"use client";
+
 import { mapStarToTone } from "./mappings";
 import { StarRecord } from "@/lib/types";
 
 type EngineState = {
   initialized: boolean;
-  padSynth?: Tone.PolySynth;
-  particleSynth?: Tone.Synth;
-  reverb?: Tone.Reverb;
-  filter?: Tone.Filter;
-  gain?: Tone.Gain;
-  loop?: Tone.Loop;
+  padSynth?: any;
+  particleSynth?: any;
+  reverb?: any;
+  filter?: any;
+  gain?: any;
+  loop?: any;
+  userVolume: number;
+  lastBaseGain: number;
+  _Transport?: any;
+  _LoopCtor?: any;
 };
 
 const state: EngineState = {
-  initialized: false
+  initialized: false,
+  userVolume: 0.8,
+  lastBaseGain: 0.2
 };
+
+type ToneNamespace = any;
+let tone: ToneNamespace | null = null;
+
+function pickToneNamespace(mod: any): ToneNamespace | null {
+  const candidates = [mod, mod?.default, mod?.Tone, (globalThis as any)?.Tone].filter(Boolean);
+  return (
+    candidates.find(
+      (c) =>
+        typeof c.start === "function" ||
+        typeof c.getContext === "function" ||
+        !!c.Transport ||
+        !!c.Destination
+    ) ?? null
+  );
+}
+
+async function importTone(): Promise<ToneNamespace> {
+  if (tone) return tone;
+
+  // Some bundlers expose Tone only via side-effect on globalThis.Tone
+  const mod: any = await import("tone");
+  const ns = pickToneNamespace(mod);
+
+  if (process.env.NODE_ENV !== "production") {
+    // eslint-disable-next-line no-console
+    console.log("[tone mod type]", typeof mod, mod);
+    // eslint-disable-next-line no-console
+    console.log("[tone default type]", typeof mod?.default, mod?.default);
+    // eslint-disable-next-line no-console
+    console.log("[globalThis.Tone exists]", !!(globalThis as any)?.Tone);
+  }
+
+  if (!ns) {
+    throw new Error(
+      "Tone loaded but namespace not found. In this bundler Tone may attach to globalThis.Tone, but it's missing."
+    );
+  }
+
+  tone = ns;
+  return ns;
+}
 
 export async function initAudio() {
   if (state.initialized) return;
-  await Tone.start();
+  const Tone = await importTone();
 
-  const padSynth = new Tone.PolySynth(Tone.Synth, {
+  if (typeof Tone.start === "function") {
+    await Tone.start();
+  } else if (typeof Tone.getContext === "function") {
+    const ctx = Tone.getContext();
+    if (ctx?.state === "suspended" && typeof ctx.resume === "function") {
+      await ctx.resume();
+    }
+  } else if (Tone.context?.state === "suspended" && typeof Tone.context.resume === "function") {
+    await Tone.context.resume();
+  } else {
+    throw new Error("Tone namespace found, but cannot start/resume AudioContext.");
+  }
+
+  const Transport = Tone.Transport ?? Tone.getTransport?.();
+  const PolySynth = Tone.PolySynth;
+  const Synth = Tone.Synth;
+  const Reverb = Tone.Reverb;
+  const Filter = Tone.Filter;
+  const Gain = Tone.Gain;
+  const Loop = Tone.Loop;
+  const Destination =
+    Tone.Destination ?? Tone.getDestination?.() ?? Tone.DestinationNode ?? Tone.context?.destination;
+
+  if (!Transport || !PolySynth || !Synth || !Reverb || !Filter || !Gain || !Loop || !Destination) {
+    throw new Error("Tone.js exports unavailable; check Tone namespace unwrap (default vs module).");
+  }
+
+  const padSynth = new PolySynth(Synth, {
     oscillator: { type: "sine" },
     envelope: { attack: 2.5, decay: 1.5, sustain: 0.7, release: 3.5 }
   });
 
-  const particleSynth = new Tone.Synth({
+  const particleSynth = new Synth({
     oscillator: { type: "triangle" },
     envelope: { attack: 0.01, decay: 0.3, sustain: 0.2, release: 0.8 }
   });
 
-  const reverb = new Tone.Reverb({ decay: 6, wet: 0.3 });
-  const filter = new Tone.Filter(800, "lowpass");
-  const gain = new Tone.Gain(0.2);
+  const reverb = new Reverb({ decay: 6, wet: 0.3 });
+  if (typeof reverb.generate === "function") {
+    await reverb.generate();
+  }
+  const filter = new Filter(800, "lowpass");
+  const gain = new Gain(0.2);
 
-  padSynth.chain(filter, reverb, gain, Tone.Destination);
-  particleSynth.chain(filter, reverb, gain, Tone.Destination);
+  padSynth.chain(filter, reverb, gain, Destination);
+  particleSynth.chain(filter, reverb, gain, Destination);
 
   state.padSynth = padSynth;
   state.particleSynth = particleSynth;
@@ -43,6 +122,10 @@ export async function initAudio() {
   state.filter = filter;
   state.gain = gain;
   state.initialized = true;
+
+  // store dynamic constructs for later reuse
+  state._Transport = Transport;
+  state._LoopCtor = Loop;
 }
 
 export async function playForStar(star: StarRecord, seed = Math.random()) {
@@ -52,7 +135,9 @@ export async function playForStar(star: StarRecord, seed = Math.random()) {
   }
 
   const params = mapStarToTone(star);
-  state.gain.gain.rampTo(params.gain, 0.2);
+  state.lastBaseGain = params.gain;
+  const targetGain = state.lastBaseGain * state.userVolume;
+  state.gain.gain.rampTo(targetGain, 0.2);
   state.filter.frequency.rampTo(params.filterCutoff, 0.4);
   state.reverb.wet.rampTo(params.reverbWet, 0.5);
 
@@ -61,28 +146,38 @@ export async function playForStar(star: StarRecord, seed = Math.random()) {
 
   state.padSynth.triggerAttackRelease(padNotes, "2n");
 
-  if (state.loop) {
-    state.loop.dispose();
+  disposeLoop();
+
+  const LoopCtor = state._LoopCtor;
+  const Transport = state._Transport;
+  if (!LoopCtor || !Transport) {
+    throw new Error("Audio transport not initialized");
   }
 
-  state.loop = new Tone.Loop((time) => {
+  state.loop = new LoopCtor((time: number) => {
     const choice = partNotes[Math.floor(Math.random() * partNotes.length)];
     state.particleSynth!.triggerAttackRelease(choice, "8n", time);
   }, `${Math.max(4 - params.particleDensity * 6, 0.5)}n`);
 
   state.loop.start(0);
-  await Tone.Transport.start();
+  await Transport.start();
 }
 
 export function stopAudio() {
-  if (state.loop) {
-    state.loop.stop();
+  disposeLoop();
+  const Transport = state._Transport;
+  if (Transport) {
+    Transport.stop();
+    Transport.cancel();
   }
-  Tone.Transport.stop();
 }
 
-export function isRunning() {
-  return Tone.Transport.state === "started";
+export function setVolume(vol: number) {
+  state.userVolume = Math.max(0, Math.min(1, vol));
+  if (state.gain) {
+    const target = state.lastBaseGain * state.userVolume;
+    state.gain.gain.rampTo(target, 0.1);
+  }
 }
 
 function buildPadChord(baseNote: number): string[] {
@@ -119,4 +214,12 @@ function mulberry(seed: number) {
     x ^= x + Math.imul(x ^ (x >>> 7), x | 61);
     return ((x ^ (x >>> 14)) >>> 0) / 4294967296;
   };
+}
+
+function disposeLoop() {
+  if (state.loop) {
+    state.loop.stop();
+    state.loop.dispose();
+    state.loop = undefined;
+  }
 }

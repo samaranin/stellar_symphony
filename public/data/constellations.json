@@ -3,18 +3,90 @@
     "id": "ori",
     "name": "Orion",
     "edges": [
-      ["hip_24436", "hip_27989"],
-      ["hip_27989", "hip_25336"],
-      ["hip_25336", "hip_25930"],
-      ["hip_25336", "hip_24436"]
+      [
+        "hip_24436",
+        "hip_27989"
+      ],
+      [
+        "hip_27989",
+        "hip_25336"
+      ],
+      [
+        "hip_25336",
+        "hip_25930"
+      ],
+      [
+        "hip_25336",
+        "hip_24436"
+      ]
     ]
   },
   {
     "id": "cma",
     "name": "Canis Major",
     "edges": [
-      ["hip_32349", "hip_31592"],
-      ["hip_32349", "hip_30324"]
+      [
+        "hip_32349",
+        "hip_31592"
+      ],
+      [
+        "hip_32349",
+        "hip_30324"
+      ]
+    ]
+  },
+  {
+    "id": "winter_triangle",
+    "name": "Winter Triangle",
+    "edges": [
+      [
+        "hip_32349",
+        "hip_37279"
+      ],
+      [
+        "hip_37279",
+        "hip_24436"
+      ],
+      [
+        "hip_24436",
+        "hip_32349"
+      ]
+    ]
+  },
+  {
+    "id": "summer_triangle",
+    "name": "Summer Triangle",
+    "edges": [
+      [
+        "vega",
+        "deneb"
+      ],
+      [
+        "deneb",
+        "altair"
+      ],
+      [
+        "altair",
+        "vega"
+      ]
+    ]
+  },
+  {
+    "id": "northern_highlights",
+    "name": "Northern Highlights",
+    "edges": [
+      [
+        "polaris",
+        "capella"
+      ],
+      [
+        "capella",
+        "vega"
+      ],
+      [
+        "vega",
+        "polaris"
+      ]
     ]
   }
 ]

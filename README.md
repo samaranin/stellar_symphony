@@ -11,6 +11,14 @@ npm run dev
 
 Then open http://localhost:3000. Data loads from `/public/data/stars.json` and `/public/data/constellations.json`.
 
+### Refresh data
+
+```bash
+npm run data
+```
+
+Generates ~2k background stars plus curated bright stars and writes `/public/data/stars.json` and `/public/data/constellations.json`. The generator is deterministic; edit `scripts/build-stars.ts` to change density or curated lists.
+
 ## Project layout
 
 - `app/page.tsx` — client page, loads static JSON, wires scene + UI.
