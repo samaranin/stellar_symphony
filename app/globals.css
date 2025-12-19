@@ -1,0 +1,17 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+}
+
+body {
+  background: radial-gradient(circle at 20% 20%, #0f1420, #05060a 45%),
+    radial-gradient(circle at 80% 10%, #0a0c13, rgba(5, 6, 10, 0.7) 50%),
+    #05060a;
+}
+
+.panel {
+  @apply bg-space-800/70 backdrop-blur border border-white/10 rounded-xl shadow-xl;
+}

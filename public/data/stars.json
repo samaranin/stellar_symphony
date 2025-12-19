@@ -1,0 +1,101 @@
+[
+  {
+    "id": "hip_32349",
+    "name": "Sirius",
+    "bayer": "α CMa",
+    "ra": 101.287155,
+    "dec": -16.716116,
+    "mag": -1.46,
+    "dist": 2.64,
+    "spec": "A1V",
+    "temp": 9940
+  },
+  {
+    "id": "hip_37279",
+    "name": "Procyon",
+    "bayer": "α CMi",
+    "ra": 114.825493,
+    "dec": 5.225,
+    "mag": 0.38,
+    "dist": 3.5,
+    "spec": "F5IV-V",
+    "temp": 6530
+  },
+  {
+    "id": "hip_24436",
+    "name": "Betelgeuse",
+    "bayer": "α Ori",
+    "ra": 88.792939,
+    "dec": 7.407064,
+    "mag": 0.42,
+    "dist": 197,
+    "spec": "M1-2Ia-Iab",
+    "temp": 3500
+  },
+  {
+    "id": "hip_27989",
+    "name": "Bellatrix",
+    "bayer": "γ Ori",
+    "ra": 81.282764,
+    "dec": 6.349703,
+    "mag": 1.64,
+    "dist": 76,
+    "spec": "B2III",
+    "temp": 21000
+  },
+  {
+    "id": "hip_25336",
+    "name": "Rigel",
+    "bayer": "β Ori",
+    "ra": 78.634467,
+    "dec": -8.201639,
+    "mag": 0.18,
+    "dist": 264,
+    "spec": "B8Ia",
+    "temp": 12100
+  },
+  {
+    "id": "hip_91262",
+    "name": "Altair",
+    "bayer": "α Aql",
+    "ra": 297.695827,
+    "dec": 8.868321,
+    "mag": 0.77,
+    "dist": 5.13,
+    "spec": "A7V",
+    "temp": 7550
+  },
+  {
+    "id": "hip_25930",
+    "name": "Saiph",
+    "bayer": "κ Ori",
+    "ra": 83.001667,
+    "dec": -9.669605,
+    "mag": 2.06,
+    "dist": 216,
+    "spec": "B0.5Ia",
+    "temp": 26000
+  },
+  {
+    "id": "hip_31592",
+    "name": "Adhara",
+    "bayer": "ε CMa",
+    "ra": 104.656453,
+    "dec": -28.972084,
+    "mag": 1.5,
+    "dist": 200,
+    "spec": "B2II",
+    "temp": 22000
+  },
+  {
+    "id": "hip_30324",
+    "name": "Mirzam",
+    "bayer": "β CMa",
+    "ra": 99.427918,
+    "dec": -17.986605,
+    "mag": 1.98,
+    "dist": 152,
+    "spec": "B1II-III",
+    "temp": 23000
+  }
+]
