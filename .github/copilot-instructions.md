@@ -1,4 +1,4 @@
-# Copilot Instructions — Stellar Symphony (MVP)
+# Copilot Instructions — Stellar Symphony
 
 ## Role
 
@@ -6,301 +6,253 @@ You are acting as a senior full-stack engineer focused on **high-performance Web
 
 ## Objective
 
-Build **Stellar Symphony**, a **static** web application that renders an **interactive 3D sky sphere** with stars and constellation lines. On selecting a star, the camera smoothly rotates/zooms to it, a details panel opens, and an **in-browser ambient music generator** (Tone.js/Web Audio) plays music derived from that star’s parameters.
+**Stellar Symphony** is a **static** web application that renders an **interactive 3D sky sphere** with stars and constellation lines. On selecting a star, the camera smoothly rotates/zooms to it, a details panel opens, and an **in-browser ambient music generator** (Tone.js/Web Audio) plays music derived from that star's parameters using **Markov chains** and **genetic algorithms**.
+
+## Current Implementation Status
+
+### ✅ Completed Features
+
+1. **3D Sky Sphere + Starfield**
+   - 90+ real stars with accurate Hipparcos coordinates
+   - THREE.Points with BufferGeometry for performance
+   - RA/Dec → XYZ conversion
+
+2. **Star Picking + Camera Focus**
+   - Raycasting on Points geometry
+   - Smooth camera animation (lerp-based)
+   - OrbitControls with zoom constraints
+
+3. **19 Constellations**
+   - Orion, Ursa Major, Cassiopeia, Cygnus, Leo, Scorpius
+   - Famous asterisms: Winter/Summer/Spring Triangle
+   - LineSegments with z-fighting prevention
+
+4. **Procedural Music Generation**
+   - Markov chains for note transitions
+   - Genetic algorithm for phrase evolution
+   - Star parameters → audio mapping
+   - Tone.js: PolySynth, Reverb, Filter, Delay
+
+5. **UI Components**
+   - Star details panel with Play/Stop/Volume/Re-seed
+   - Constellation toggle
+   - Responsive design
 
 ## Hard Constraints
 
 * **No runtime backend / no database.**
 * All app data must load from **static files** served from `/public/data/*`.
-* The site must be deployable as static hosting (Vercel/Cloudflare Pages acceptable).
+* The site must be deployable as static hosting (Vercel/Cloudflare Pages).
 * Audio must **NOT autoplay**. Start only after explicit user gesture (Play button).
-* MVP needs only **a few thousand stars**, plus a curated set of “famous” named stars.
 
-## Target Stack
+## Tech Stack
 
-* Next.js (App Router) + **TypeScript**
-* Tailwind CSS (optional shadcn/ui)
+* Next.js 14 (App Router) + **TypeScript**
+* Tailwind CSS
 * Three.js via **@react-three/fiber** and **@react-three/drei**
-* **Tone.js** for audio generation
-* Optional for animations: simple lerp per frame (avoid heavy libs unless needed)
+* **Tone.js** 14.8 for audio generation
+* **Vitest** for unit testing
 
 ---
 
-## Core Features (MVP)
+## Core Technical Details
 
-### 1) 3D Sky Sphere + Starfield
+### RA/Dec → XYZ Conversion
 
-* Render a sphere of radius `R` (e.g., 100) centered at `(0,0,0)`.
-* Render stars as a performant single geometry:
-
-  * Preferred: `THREE.Points` + `BufferGeometry`
-  * Store `position`, `color`, and optionally `size`/`magnitude` attributes.
-* Stars are positioned by RA/Dec → XYZ on the sphere surface.
-
-**RA/Dec → XYZ conversion (required)**
-
-* Inputs: `raDeg` in `[0..360)`, `decDeg` in `[-90..90]`, `R`.
-* Convert degrees to radians and compute:
-
-  * `x = R * cos(dec) * cos(ra)`
-  * `y = R * sin(dec)`
-  * `z = R * cos(dec) * sin(ra)`
-
-### 2) Star Picking (Click/Tap) + Highlight
-
-* Implement selection via **raycasting** on the `Points`.
-* Use the intersection `index` to identify the star record.
-* Hover (desktop) should highlight a star (optional but recommended).
-* Mobile: tap selects (hover not required).
-
-### 3) Smooth Camera Focus on Star
-
-* Use `OrbitControls` or custom controls with constraints:
-
-  * allow orbit rotation around origin
-  * limit zoom to avoid clipping into the sphere
-* When a star is selected:
-
-  * smoothly animate camera position + target to the star within ~0.6–1.2s.
-  * do per-frame lerp (no layout thrash / no allocations).
-
-**Camera focusing rule (required)**
-
-* Let `p` be star position on sphere.
-* `dir = normalize(p)`
-* `desiredCamera = dir * (R * cameraDistanceFactor)`; default factor ~`1.6`
-* `desiredTarget = p` (or `p * 0.98`)
-
-### 4) Constellation Lines Overlay
-
-* Render constellation lines as `LineSegments`.
-* Data format: constellations contain edges as pairs of star IDs.
-* Avoid z-fighting by pushing endpoints slightly outward: `p * 1.001`.
-* UI toggle: show/hide constellation overlay.
-
-### 5) Star Details Panel + Audio Player
-
-When star is selected, show:
-
-* name (if available)
-* identifiers (Bayer, HIP/HD, etc. if available)
-* magnitude, spectral type, temperature, distance (optional fields)
-  Controls:
-* Play/Pause (required)
-* Volume (required)
-* “Re-seed / Regenerate variation” (required)
-
-### 6) In-Browser Ambient Music Generation (Tone.js)
-
-* Must run fully in browser, using Tone.js.
-* Must not autoplay; only start after user gesture.
-* Sound should be *star-identity consistent* but allow variation via re-seed.
-
-**Minimum audio architecture (required)**
-
-* Two layers:
-
-  1. Pad layer (slow chords, long ADSR)
-  2. Particle layer (sparse plucks/bells/noise)
-* Effects chain: reverb + lowpass filter (delay optional)
-
-**Minimum parameter mapping (required)**
-
-* `mag` influences:
-
-  * overall gain (clamped)
-  * particle density (brighter → slightly more activity)
-* `temp` or `spec` influences:
-
-  * filter cutoff (hotter → brighter timbre)
-  * base register / chord voicing
-* `dist` (if available) influences:
-
-  * reverb wet/decay (farther → more spacious)
-
-**Audio quality requirements**
-
-* No clipping at default settings
-* Responsive play/stop (<200ms perceived)
-* Efficient CPU on mid-range devices (avoid excessive polyphony)
-
----
-
-## Data Requirements (Static)
-
-### Star Data File
-
-Location: `/public/data/stars.json`
-
-**Schema (MVP)**
-
-```json
-[
-  {
-    "id": "hip_32349",
-    "name": "Sirius",
-    "bayer": "α CMa",
-    "ra": 101.287155,
-    "dec": -16.716116,
-    "mag": -1.46,
-    "dist": 2.64,
-    "spec": "A1V",
-    "temp": 9940
-  }
-]
+```typescript
+// lib/astro.ts
+export function raDecToXYZ(raDeg: number, decDeg: number, R: number): [number, number, number] {
+  const ra = raDeg * (Math.PI / 180);
+  const dec = decDeg * (Math.PI / 180);
+  return [
+    R * Math.cos(dec) * Math.cos(ra),
+    R * Math.sin(dec),
+    R * Math.cos(dec) * Math.sin(ra),
+  ];
+}
 ```
 
-Required fields: `id`, `ra`, `dec`, `mag`
-Optional fields: `name`, `bayer`, `dist`, `spec`, `temp`
+### Camera Focus Formula
 
-### Constellations Data File
-
-Location: `/public/data/constellations.json`
-
-**Schema**
-
-```json
-[
-  {
-    "id": "ori",
-    "name": "Orion",
-    "edges": [["hip_24436","hip_25336"], ["hip_25336","hip_27989"]]
-  }
-]
+```typescript
+const dir = normalize(starPosition);
+const desiredCamera = dir * (R * 0.6);  // Factor 0.6 for comfortable zoom
+const desiredTarget = starPosition * 0.98;
 ```
 
-### Curated List (Input to Build Script)
+### Procedural Music Architecture
 
-Location: `/data_sources/famous_stars.csv`
-Columns: `query_name,preferred_name,notes`
-
----
-
-## Build-Time Data Ingestion (No Runtime Backend)
-
-Create scripts that can generate `stars.json` at build-time (optional for MVP implementation order, but must exist as a documented path).
-
-**Requirements**
-
-* Script(s) should:
-
-  * fetch/enrich famous stars list (e.g., from SIMBAD) OR accept manually-curated JSON for MVP
-  * optionally append “background stars”
-  * deduplicate and validate ranges
-  * output to `/public/data/*`
-* Include caching to avoid repeated fetches (store raw responses under `/cache`).
-* Implement throttling and retries with exponential backoff.
-
-If implementing the fetch is too time-consuming for MVP, provide a **manual seed dataset** + a script skeleton with TODOs.
-
----
-
-## UX Requirements
-
-* Fullscreen 3D canvas
-* Details panel:
-
-  * desktop: right side panel
-  * mobile: bottom sheet
-* Loading state while fetching JSON
-* Error UI for missing WebGL or failed data load
-* Respect `prefers-reduced-motion` by reducing camera animation (or allow instant focus)
-
----
-
-## Performance Requirements
-
-* Target ~60fps desktop, ~30fps mobile.
-* Avoid per-frame allocations.
-* Keep `stars.json` small (aim < 2–5MB). If larger, propose binary format later (non-MVP).
+```
+┌─────────────────────────────────────────────────────────┐
+│                    Star Parameters                       │
+│  (magnitude, temperature, distance, spectral type)       │
+└────────────────────────┬────────────────────────────────┘
+                         │
+                         ▼
+┌─────────────────────────────────────────────────────────┐
+│              mapStarToGeneratorConfig()                  │
+│  - Scale selection (pentatonic → chromatic)              │
+│  - Note density, phrase length                           │
+│  - Mutation rate, crossover rate                         │
+└────────────────────────┬────────────────────────────────┘
+                         │
+          ┌──────────────┴──────────────┐
+          │                             │
+          ▼                             ▼
+┌─────────────────────┐     ┌─────────────────────┐
+│   Markov Chains     │     │  Genetic Algorithm  │
+│ - Transition matrix │     │ - Population: 12    │
+│ - Scale-aware       │     │ - Generations: 8    │
+│ - Weighted probs    │     │ - Fitness scoring   │
+└─────────┬───────────┘     └──────────┬──────────┘
+          │                            │
+          └──────────────┬─────────────┘
+                         │
+                         ▼
+┌─────────────────────────────────────────────────────────┐
+│              generateProceduralMusic()                   │
+│  Returns: { padNotes, shimmerNotes }                     │
+└────────────────────────┬────────────────────────────────┘
+                         │
+                         ▼
+┌─────────────────────────────────────────────────────────┐
+│                   Tone.js Engine                         │
+│  - PolySynth (pad layer, shimmer layer)                  │
+│  - Effects: Reverb, Filter, FeedbackDelay                │
+│  - Star params → filter cutoff, reverb, gain             │
+└─────────────────────────────────────────────────────────┘
+```
 
 ---
 
-## Code Organization (Expected)
+## Data Schema
+
+### Star Data (`/public/data/stars.json`)
+
+```json
+{
+  "id": "hip_32349",
+  "name": "Sirius",
+  "bayer": "α CMa",
+  "ra": 101.2875,
+  "dec": -16.7161,
+  "mag": -1.46,
+  "dist": 8.6,
+  "spec": "A1V",
+  "temp": 9940
+}
+```
+
+Required: `id`, `ra`, `dec`, `mag`
+Optional: `name`, `bayer`, `dist`, `spec`, `temp`
+
+### Constellation Data (`/public/data/constellations.json`)
+
+```json
+{
+  "id": "ori",
+  "name": "Orion",
+  "description": "The Hunter",
+  "edges": [["hip_24436", "hip_27989"], ["hip_27989", "hip_25336"]]
+}
+```
+
+---
+
+## Code Organization
 
 ```
 /app
-  page.tsx
+  page.tsx              # Main client page
 /components
-  SkyScene.tsx
-  StarField.tsx
-  ConstellationLines.tsx
-  StarInfoPanel.tsx
-  ControlsBar.tsx
+  SkyScene.tsx          # R3F Canvas + controls
+  StarField.tsx         # Points geometry
+  ConstellationLines.tsx # LineSegments
+  StarInfoPanel.tsx     # Details + audio controls
+  ControlsBar.tsx       # UI toggles
 /audio
-  engine.ts
-  mappings.ts
+  engine.ts             # Tone.js initialization & playback
+  mappings.ts           # Star → audio params
+  procedural.ts         # Markov + GA implementation
+  procedural.test.ts    # 19 unit tests
 /lib
-  astro.ts        // RA/Dec conversions, clamping utilities
-  types.ts
-/scripts
-  build-stars.ts
+  astro.ts              # RA/Dec conversion, clamp
+  astro.test.ts         # 3 unit tests
+  types.ts              # TypeScript interfaces
 /public/data
-  stars.json
-  constellations.json
+  stars.json            # 90+ real stars
+  constellations.json   # 19 constellations
+/scripts
+  build-stars.ts        # Data generation
 ```
 
 ---
 
-## Implementation Guidance (Do This)
+## Testing
 
-1. Start with scene + rendering pipeline (R3F, camera, controls).
-2. Implement loading + parsing static JSON.
-3. Render stars as `Points` with `BufferGeometry`.
-4. Add raycasting selection and selection state management.
-5. Add smooth camera focusing.
-6. Add constellation lines overlay + toggle.
-7. Build details panel UI.
-8. Implement Tone.js audio engine:
+Run all tests:
+```bash
+npm run test
+```
 
-   * initialize on gesture
-   * play/stop
-   * star → params mapping
-   * re-seed
-9. Add small QA checklist + basic unit tests for RA/Dec conversion and mapping clamps.
+Current test coverage:
+- `lib/astro.test.ts` — 3 tests (RA/Dec conversion, clamping)
+- `audio/mappings.test.ts` — 3 tests (parameter mapping)
+- `audio/procedural.test.ts` — 19 tests (Markov, GA, fitness)
 
 ---
 
-## Non-Goals (Explicitly Out of Scope for MVP)
+## Performance Guidelines
 
-* User accounts, persistence beyond localStorage settings
-* Real-time API calls from the browser to astronomy databases
-* Photorealistic galaxy backgrounds
-* Tens/hundreds of thousands of stars
+* Target ~60fps desktop, ~30fps mobile
+* Avoid per-frame allocations in `useFrame` loops
+* Precompute buffers for starfield
+* Keep data files < 2MB
 
 ---
 
-## Acceptance Criteria (Must Pass)
+## Data Sources & References
 
-* App runs fully from static hosting with `/public/data/*`.
-* Renders starfield + at least 5 constellations.
-* Selecting a star:
+### Astronomical Data
+- **Hipparcos Catalog** — ESA astrometry mission
+  - https://www.cosmos.esa.int/web/hipparcos
+- **Wikipedia Star Data**
+  - List of brightest stars: https://en.wikipedia.org/wiki/List_of_brightest_stars
+  - Sirius: https://en.wikipedia.org/wiki/Sirius
+  - Vega: https://en.wikipedia.org/wiki/Vega
+  - Arcturus: https://en.wikipedia.org/wiki/Arcturus
 
-  * reliably identifies it (correct record)
-  * smoothly focuses camera on it
-  * opens details panel with star info
-* Audio:
+### Procedural Music Algorithms
+- **Markov Chains in Music**
+  - Wikipedia: https://en.wikipedia.org/wiki/Markov_chain#Music
+  - Applications in algorithmic composition
+- **Genetic Algorithms**
+  - Holland, J.H. (1975). "Adaptation in Natural and Artificial Systems"
+  - Used for phrase evolution with fitness-based selection
 
-  * plays ambient sound derived from star parameters
-  * play/pause/volume/re-seed work
-  * does not autoplay
-* Works on latest Chrome and mobile Safari/Chrome without crashing.
+### Technologies
+- **Three.js**: https://threejs.org/
+- **React Three Fiber**: https://docs.pmnd.rs/react-three-fiber
+- **Tone.js**: https://tonejs.github.io/
+- **Next.js**: https://nextjs.org/
+- **Vitest**: https://vitest.dev/
 
 ---
 
 ## Coding Standards
 
-* TypeScript strict types; define shared types in `/lib/types.ts`.
-* No unnecessary dependencies.
-* Keep components small and testable.
-* Avoid creating new arrays/objects in `useFrame` loops; precompute buffers.
-* Document key math and mapping logic with concise comments.
+* TypeScript strict mode enabled
+* Define shared types in `/lib/types.ts`
+* No unnecessary dependencies
+* Keep components small and testable
+* Document key math/mapping logic with comments
 
 ---
 
-## Deliverables
+## Future Enhancements (Out of Scope for MVP)
 
-* Working MVP implementing all acceptance criteria
-* Seed `stars.json` + `constellations.json` committed
-* Build script skeleton (or working) documented in `README.md`
-* Clear instructions to run locally and deploy statically
+* User accounts / persistence
+* Real-time API calls to astronomy databases
+* Photorealistic galaxy backgrounds
+* Tens of thousands of stars (would need binary format)
+* VR/AR support

@@ -2,91 +2,195 @@
   {
     "id": "ori",
     "name": "Orion",
+    "description": "The Hunter - One of the most recognizable constellations",
     "edges": [
-      [
-        "hip_24436",
-        "hip_27989"
-      ],
-      [
-        "hip_27989",
-        "hip_25336"
-      ],
-      [
-        "hip_25336",
-        "hip_25930"
-      ],
-      [
-        "hip_25336",
-        "hip_24436"
-      ]
+      ["hip_24436", "hip_27989"],
+      ["hip_27989", "hip_25336"],
+      ["hip_25336", "hip_25930"],
+      ["hip_25930", "hip_24436"],
+      ["hip_26311", "hip_26727"],
+      ["hip_26727", "hip_25281"],
+      ["hip_25281", "hip_26311"]
+    ]
+  },
+  {
+    "id": "uma",
+    "name": "Ursa Major",
+    "description": "The Big Dipper / Great Bear",
+    "edges": [
+      ["hip_54061", "hip_53910"],
+      ["hip_53910", "hip_58001"],
+      ["hip_58001", "hip_59774"],
+      ["hip_59774", "hip_62956"],
+      ["hip_62956", "hip_65378"],
+      ["hip_65378", "hip_67301"]
+    ]
+  },
+  {
+    "id": "cas",
+    "name": "Cassiopeia",
+    "description": "The Queen - W-shaped constellation",
+    "edges": [
+      ["hip_746", "hip_3179"],
+      ["hip_3179", "hip_4427"],
+      ["hip_4427", "hip_6686"],
+      ["hip_6686", "hip_8886"]
+    ]
+  },
+  {
+    "id": "cyg",
+    "name": "Cygnus",
+    "description": "The Swan / Northern Cross",
+    "edges": [
+      ["hip_102098", "hip_102488"],
+      ["hip_102488", "hip_95947"],
+      ["hip_102488", "hip_104732"],
+      ["hip_102488", "hip_100453"]
+    ]
+  },
+  {
+    "id": "leo",
+    "name": "Leo",
+    "description": "The Lion",
+    "edges": [
+      ["hip_49669", "hip_50583"],
+      ["hip_50583", "hip_54872"],
+      ["hip_54872", "hip_57632"],
+      ["hip_49669", "hip_57632"]
+    ]
+  },
+  {
+    "id": "sco",
+    "name": "Scorpius",
+    "description": "The Scorpion",
+    "edges": [
+      ["hip_78401", "hip_78820"],
+      ["hip_78820", "hip_80763"],
+      ["hip_80763", "hip_86032"],
+      ["hip_86032", "hip_84345"]
+    ]
+  },
+  {
+    "id": "gem",
+    "name": "Gemini",
+    "description": "The Twins - Castor and Pollux",
+    "edges": [
+      ["hip_36850", "hip_37826"]
+    ]
+  },
+  {
+    "id": "cru",
+    "name": "Crux",
+    "description": "The Southern Cross",
+    "edges": [
+      ["hip_60718", "hip_61084"],
+      ["hip_62434", "hip_61084"]
+    ]
+  },
+  {
+    "id": "peg",
+    "name": "Pegasus",
+    "description": "The Great Square of Pegasus",
+    "edges": [
+      ["hip_677", "hip_113963"],
+      ["hip_113963", "hip_112122"],
+      ["hip_112122", "hip_1067"],
+      ["hip_1067", "hip_677"],
+      ["hip_112122", "hip_107315"]
+    ]
+  },
+  {
+    "id": "and",
+    "name": "Andromeda",
+    "description": "The Chained Princess",
+    "edges": [
+      ["hip_677", "hip_5447"],
+      ["hip_5447", "hip_9640"]
+    ]
+  },
+  {
+    "id": "boo",
+    "name": "Boötes",
+    "description": "The Herdsman",
+    "edges": [
+      ["hip_69673", "hip_73714"],
+      ["hip_69673", "hip_72622"]
+    ]
+  },
+  {
+    "id": "sgr",
+    "name": "Sagittarius",
+    "description": "The Teapot / Archer",
+    "edges": [
+      ["hip_82396", "hip_90185"],
+      ["hip_90185", "hip_89931"],
+      ["hip_89931", "hip_93506"],
+      ["hip_93506", "hip_108085"]
     ]
   },
   {
     "id": "cma",
     "name": "Canis Major",
+    "description": "The Great Dog - Home of Sirius",
     "edges": [
-      [
-        "hip_32349",
-        "hip_31592"
-      ],
-      [
-        "hip_32349",
-        "hip_30324"
-      ]
+      ["hip_32349", "hip_31681"],
+      ["hip_32349", "hip_30324"]
+    ]
+  },
+  {
+    "id": "tau",
+    "name": "Taurus",
+    "description": "The Bull - Home of Aldebaran",
+    "edges": [
+      ["hip_21421", "hip_25336"]
+    ]
+  },
+  {
+    "id": "vir",
+    "name": "Virgo",
+    "description": "The Maiden - Home of Spica",
+    "edges": [
+      ["hip_65474", "hip_57632"]
+    ]
+  },
+  {
+    "id": "car",
+    "name": "Carina",
+    "description": "The Keel - Home of Canopus",
+    "edges": [
+      ["hip_30438", "hip_45238"],
+      ["hip_45238", "hip_41037"],
+      ["hip_41037", "hip_42913"]
     ]
   },
   {
     "id": "winter_triangle",
     "name": "Winter Triangle",
+    "description": "Sirius, Betelgeuse, and Procyon",
     "edges": [
-      [
-        "hip_32349",
-        "hip_37279"
-      ],
-      [
-        "hip_37279",
-        "hip_24436"
-      ],
-      [
-        "hip_24436",
-        "hip_32349"
-      ]
+      ["hip_32349", "hip_37279"],
+      ["hip_37279", "hip_24436"],
+      ["hip_24436", "hip_32349"]
     ]
   },
   {
     "id": "summer_triangle",
     "name": "Summer Triangle",
+    "description": "Vega, Deneb, and Altair",
     "edges": [
-      [
-        "vega",
-        "deneb"
-      ],
-      [
-        "deneb",
-        "altair"
-      ],
-      [
-        "altair",
-        "vega"
-      ]
+      ["hip_91262", "hip_102098"],
+      ["hip_102098", "hip_97649"],
+      ["hip_97649", "hip_91262"]
     ]
   },
   {
-    "id": "northern_highlights",
-    "name": "Northern Highlights",
+    "id": "spring_triangle",
+    "name": "Spring Triangle",
+    "description": "Arcturus, Spica, and Regulus",
     "edges": [
-      [
-        "polaris",
-        "capella"
-      ],
-      [
-        "capella",
-        "vega"
-      ],
-      [
-        "vega",
-        "polaris"
-      ]
+      ["hip_69673", "hip_65474"],
+      ["hip_65474", "hip_49669"],
+      ["hip_49669", "hip_69673"]
     ]
   }
 ]
