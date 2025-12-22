@@ -890,19 +890,32 @@ function schedulePadDrone(params: StarMusicParams, cycleDuration: number, beatsT
   if (isHot) padVelocity *= 0.6;
   if (isDistant) padVelocity *= 0.75;
 
-  // Shorten pad duration and reduce level for very bright / nearby stars
+  // Shorten pad duration for very bright / nearby stars, but do NOT lower the level.
+  // Instead we will gently reduce the global filter cutoff during the pad so
+  // the sustain sounds less piercing without reducing loudness.
   const mag = star.mag ?? 2;
   const magNorm = clamp((6 - mag) / 8, 0, 1);
-  // Reduce pad length for bright stars (Sirius etc) so they don't produce overpowering, long sustains
   const rawPadBeats = (cycleDuration + 2) * (1 - magNorm * 0.45);
   const padBeats = clamp(rawPadBeats, 4, cycleDuration + 2);
-  padVelocity = clamp(padVelocity * (1 - magNorm * 0.28), 0.01, 0.2);
 
   // Slightly lower the global filter cutoff for hot stars to reduce piercing harmonics
   if (isHot) {
     const lowCut = 1200; // Hz
     state.filter?.frequency.rampTo(Math.min((state.filter?.frequency?.value ?? 4000), lowCut), 0.8);
     state.reverb?.wet.rampTo(0.22, 0.8);
+  }
+
+  // For very bright stars, temporarily lower the master lowpass cutoff to
+  // make long pad sustains less sharp. We'll restore it after the pad duration.
+  const baseFilterFreq = 1500 + warmth * 2500; // same formula as configureEffects
+  if (magNorm > 0.45) {
+    const reduceBy = Math.min(1200, magNorm * 1800);
+    const targetLow = Math.max(600, baseFilterFreq - reduceBy);
+    state.filter?.frequency.rampTo(targetLow, 0.9);
+    // schedule restore after the pad ends
+    state.transport.schedule((t: number) => {
+      state.filter?.frequency.rampTo(baseFilterFreq, 1.2);
+    }, beatsToSec(padBeats));
   }
 
   state.transport.schedule((time: number) => {
