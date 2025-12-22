@@ -79,7 +79,7 @@ const PROGRESSIONS: Record<string, number[][]> = {
 // Human-pleasing chord palettes (voicings). Each palette is a list of voicings
 // (intervals relative to chord root) that are known to sound pleasant together.
 // We'll use these as base voicings and apply small per-star shifts.
-const CHORD_PALETTES: Record<string, number[][][]> = {
+const CHORD_PALETTES: Record<string, number[][]> = {
   warm: [
     [0, 4, 7, 11],    // add major 7 - lush
     [0, 3, 7, 10],    // minor7
@@ -175,6 +175,7 @@ interface EngineState {
   compressor: any;
   masterGain: any;
   transport: any;
+  loopId?: any;
   
   // Musical state
   currentPhrase: number;
@@ -421,6 +422,10 @@ export function stopAudio(): void {
   
   state.transport.stop();
   state.transport.cancel();
+  if (state.loopId) {
+    try { state.transport.clear(state.loopId); } catch (e) {}
+    state.loopId = undefined;
+  }
   
   state.piano?.releaseAll();
   state.strings?.releaseAll();
@@ -470,6 +475,15 @@ const ARP_PATTERNS = [
   "down",     // fifth → third → root  
   "updown",   // root → third → fifth → third
   "broken",   // root → fifth → third
+];
+
+// Fast-note rhythm variants (subdivisions within a response slot) to add variety
+const FAST_RHYTHMS: number[][] = [
+  [0, 0.25, 0.5],          // quick triplet-like
+  [0, 0.5],               // duo
+  [0, 0.166, 0.333, 0.5], // sextuplet-ish spread
+  [0, 0.3, 0.6],          // syncopated
+  [0, 0.125, 0.25],       // very quick double
 ];
 
 function starToMusicParams(star: StarRecord): StarMusicParams {
@@ -631,7 +645,7 @@ function configureEffects(params: StarMusicParams): void {
 // Pre-computed phrase patterns (generated once per star, reused every cycle)
 interface ComposedPhrase {
   pianoNotes: Array<{ beat: number; midi: number; duration: number; velocity: number }>;
-  guitarNotes: Array<{ beat: number; midi: number; duration: number; velocity: number }>;
+  guitarNotes: Array<{ beat: number; midi: number; duration: number; velocity: number; jitter?: number }>;
   chordProgression: number[][];
 }
 
@@ -759,13 +773,26 @@ function composePhrase(params: StarMusicParams, rng: SeededRNG, star: StarRecord
     // Vary response timing based on rhythm pattern length
     const responseBeats = pianoRhythm.length <= 3 ? [3, 7, 11] : [3.5, 7.5, 11.5];
     
+    // Choose a fast rhythm variant and small deterministic inversion/rotation for variety
+    const fastRhythm = rng.pick(FAST_RHYTHMS);
+    const startRot = rng.nextInt(0, Math.max(0, arpPattern.length - 1));
+    const octaveJump = rng.next() < 0.25; // occasional octave jump
+
     responseBeats.forEach((responseBeat, respIdx) => {
-      arpPattern.forEach((interval, i) => {
+      // pick a rhythm pattern variant for this response slot
+      const pattern = fastRhythm.map(v => v + (respIdx * 0.03 * (rng.next() - 0.5)));
+      pattern.forEach((subOffset, j) => {
+        const idx = (startRot + j) % arpPattern.length;
+        let interval = arpPattern[idx];
+        // optionally octave-shift every other note for sparkle
+        if (octaveJump && j % 2 === 1) interval += 12;
+        const jitter = Math.max(-0.04, Math.min(0.04, rng.gaussian(0, 0.015)));
         guitarNotes.push({
-          beat: responseBeat + i * 0.25,
+          beat: responseBeat + subOffset,
           midi: baseNote + (respIdx === 2 ? 0 : (params.fastNoteOffset ?? noteOffset)) + interval + harmonyShift, // Last one lower
-          duration: 0.6,
-          velocity: 0.38 - respIdx * 0.03, // Gradually softer
+          duration: 0.28,
+          velocity: clamp(0.38 - respIdx * 0.03 + rng.gaussian(0, 0.03), 0.2, 0.6),
+          jitter: jitter,
         });
       });
     });
@@ -788,9 +815,44 @@ function scheduleGenerativeMusic(params: StarMusicParams, rng: SeededRNG, star: 
   // Pad drone disabled - was causing unpleasant sounds
   // Schedule pad drone with per-star safeguards
   schedulePadDrone(params, cycleDuration, beatsToSec, star);
-  scheduleStrings(params, cycleDuration, beatsToSec);
-  schedulePiano(beatsToSec);
-  scheduleGuitar(beatsToSec);
+  scheduleStrings(params, cycleDuration, beatsToSec, star);
+
+  // Centralized lightweight scheduler: runs every 16th note and triggers
+  // piano + fast guitar notes within a small lookahead window. This reduces
+  // per-note `transport.schedule` calls which can cause stuttering under load.
+  if (state.loopId) {
+    try { state.transport.clear(state.loopId); } catch (e) {}
+    state.loopId = undefined;
+  }
+
+  const tickNotation = "16n"; // run every 16th note
+  state.loopId = state.transport.scheduleRepeat((time: number) => {
+    // time is the scheduled callback time in seconds
+    // compute current beat (absolute) at this time
+    const beatNow = (time * params.tempo) / 60;
+    const cycleBeat = beatNow % cycleDuration;
+    const lookaheadBeats = 0.26; // slightly larger than 16th to be safe
+
+    const triggerNote = (note: { beat: number; midi: number; duration: number; velocity: number; jitter?: number }) => {
+      // compute delta in beats from current cycle position
+      let delta = ((note.beat - cycleBeat) + cycleDuration) % cycleDuration;
+      if (delta < lookaheadBeats) {
+        const eventTime = time + delta * (60 / params.tempo) + (note.jitter ?? 0);
+        state.piano?.triggerAttackRelease(midiToNote(note.midi), note.duration * (60 / params.tempo), eventTime, note.velocity);
+      }
+    };
+
+    // Trigger piano notes
+    if (currentPhrase) {
+      for (let i = 0; i < currentPhrase.pianoNotes.length; i++) {
+        triggerNote(currentPhrase.pianoNotes[i] as any);
+      }
+      // Trigger fast guitar/arpeggio notes
+      for (let i = 0; i < currentPhrase.guitarNotes.length; i++) {
+        triggerNote(currentPhrase.guitarNotes[i] as any);
+      }
+    }
+  }, tickNotation);
   
   // Enable looping
   state.transport.loop = true;
@@ -828,6 +890,14 @@ function schedulePadDrone(params: StarMusicParams, cycleDuration: number, beatsT
   if (isHot) padVelocity *= 0.6;
   if (isDistant) padVelocity *= 0.75;
 
+  // Shorten pad duration and reduce level for very bright / nearby stars
+  const mag = star.mag ?? 2;
+  const magNorm = clamp((6 - mag) / 8, 0, 1);
+  // Reduce pad length for bright stars (Sirius etc) so they don't produce overpowering, long sustains
+  const rawPadBeats = (cycleDuration + 2) * (1 - magNorm * 0.45);
+  const padBeats = clamp(rawPadBeats, 4, cycleDuration + 2);
+  padVelocity = clamp(padVelocity * (1 - magNorm * 0.28), 0.01, 0.2);
+
   // Slightly lower the global filter cutoff for hot stars to reduce piercing harmonics
   if (isHot) {
     const lowCut = 1200; // Hz
@@ -836,60 +906,46 @@ function schedulePadDrone(params: StarMusicParams, cycleDuration: number, beatsT
   }
 
   state.transport.schedule((time: number) => {
-    state.pad?.triggerAttackRelease(droneNotes, beatsToSec(cycleDuration + 2), time, padVelocity);
+    state.pad?.triggerAttackRelease(droneNotes, beatsToSec(padBeats), time, padVelocity);
   }, 0);
 }
 
-function scheduleStrings(params: StarMusicParams, cycleDuration: number, beatsToSec: (b: number) => number): void {
+function scheduleStrings(params: StarMusicParams, cycleDuration: number, beatsToSec: (b: number) => number, star: StarRecord): void {
   const { baseNote } = params;
-  
+
   if (!currentPhrase) return;
-  
+
+  // Shorten string chord sustains for very bright / nearby stars to avoid overwhelming long tones
+  const mag = star.mag ?? 2;
+  const magNorm = clamp((6 - mag) / 8, 0, 1);
+  const chordBeats = clamp(7.5 * (1 - magNorm * 0.4), 3, 7.5);
+
   // Chord 1: beats 0-8
   state.transport.schedule((time: number) => {
     const notes = currentPhrase!.chordProgression[0].map(i => midiToNote(baseNote + i));
     notes.forEach((note, idx) => {
-      state.strings?.triggerAttackRelease(note, beatsToSec(7.5), time + idx * 0.03, 0.35);
+      state.strings?.triggerAttackRelease(note, beatsToSec(chordBeats), time + idx * 0.03, 0.35);
     });
   }, 0);
-  
+
   // Chord 2: beats 8-16
   state.transport.schedule((time: number) => {
     const notes = currentPhrase!.chordProgression[1].map(i => midiToNote(baseNote + i));
     notes.forEach((note, idx) => {
-      state.strings?.triggerAttackRelease(note, beatsToSec(7.5), time + idx * 0.03, 0.35);
+      state.strings?.triggerAttackRelease(note, beatsToSec(chordBeats), time + idx * 0.03, 0.35);
     });
   }, beatsToSec(8));
 }
 
 function schedulePiano(beatsToSec: (b: number) => number): void {
-  if (!currentPhrase) return;
-  
-  currentPhrase.pianoNotes.forEach(note => {
-    state.transport.schedule((time: number) => {
-      state.piano?.triggerAttackRelease(
-        midiToNote(note.midi),
-        beatsToSec(note.duration),
-        time,
-        note.velocity
-      );
-    }, beatsToSec(note.beat));
-  });
+  // Scheduling is handled by the centralized scheduler (scheduleRepeat).
+  // Keep this function as a no-op for backwards compatibility.
+  return;
 }
 
 function scheduleGuitar(beatsToSec: (b: number) => number): void {
-  if (!currentPhrase) return;
-  
-  currentPhrase.guitarNotes.forEach(note => {
-    state.transport.schedule((time: number) => {
-      state.guitar?.triggerAttackRelease(
-        midiToNote(note.midi),
-        beatsToSec(note.duration),
-        time,
-        note.velocity
-      );
-    }, beatsToSec(note.beat));
-  });
+  // Scheduling is handled by the centralized scheduler (scheduleRepeat).
+  return;
 }
 
 // ============================================================================
