@@ -48,6 +48,10 @@ export interface StarMusicParams {
   spaciousness: number;
   density: number;
   emotion: "hopeful" | "melancholic" | "serene" | "mysterious";
+  noteOffset?: number; // octave offset applied when composing phrases
+  paletteName?: string;
+  harmonyShift?: number;
+  fastNoteOffset?: number; // offset used for fast / plucked notes (guitar, quick arps)
 }
 
 // ============================================================================
@@ -70,6 +74,32 @@ const PROGRESSIONS: Record<string, number[][]> = {
   melancholic: [[0, 3, 7], [5, 8, 12], [3, 7, 10], [0, 3, 7]],  // i - iv - III - i
   serene: [[0, 7, 14], [5, 12, 19], [7, 14, 21], [0, 7, 14]],   // Quintal movement
   mysterious: [[0, 1, 7], [5, 6, 12], [7, 8, 14], [0, 1, 7]],   // Phrygian color
+};
+
+// Human-pleasing chord palettes (voicings). Each palette is a list of voicings
+// (intervals relative to chord root) that are known to sound pleasant together.
+// We'll use these as base voicings and apply small per-star shifts.
+const CHORD_PALETTES: Record<string, number[][][]> = {
+  warm: [
+    [0, 4, 7, 11],    // add major 7 - lush
+    [0, 3, 7, 10],    // minor7
+    [0, 5, 9, 12],    // suspended-add9
+  ],
+  airy: [
+    [0, 7, 12, 16],   // open fifth + octave + ninth
+    [0, 4, 9, 14],    // add9 voicing
+    [0, 2, 7, 11],    // sus2 + maj7
+  ],
+  consonant: [
+    [0, 4, 7],        // basic triad
+    [0, 3, 7],        // minor triad
+    [0, 7, 12],       // power/spacey
+  ],
+  modern: [
+    [0, 4, 7, 14],    // add9 extension
+    [0, 3, 7, 13],    // minor add9
+    [0, 5, 7, 12],    // quartal-ish
+  ],
 };
 
 // ============================================================================
@@ -138,6 +168,7 @@ interface EngineState {
   strings: any;
   guitar: any;
   pad: any;
+  padHP: any;
   reverb: any;
   delay: any;
   filter: any;
@@ -155,12 +186,13 @@ const state: EngineState = {
   playing: false,
   currentStar: null,
   currentSeed: 0,
-  userVolume: 0.7,
+  userVolume: 0.2,
   phraseCount: 0,
   piano: null,
   strings: null,
   guitar: null,
   pad: null,
+  padHP: null,
   reverb: null,
   delay: null,
   filter: null,
@@ -226,20 +258,18 @@ export async function initAudio(): Promise<void> {
   const Destination = T.Destination ?? T.getDestination?.();
   
   // ========== PIANO - Clear, defined attack ==========
+  // Softer, more pleasing piano-like synth (less aggressive harmonics)
   state.piano = new T.PolySynth(T.Synth, {
     oscillator: {
-      type: "fmtriangle",
-      modulationType: "sine",
-      modulationIndex: 0.6,
-      harmonicity: 2,
+      type: "triangle",
     },
     envelope: {
-      attack: 0.008,      // Quick hammer
-      decay: 0.4,         // Shorter decay
-      sustain: 0.2,
-      release: 0.8,       // Cleaner release
+      attack: 0.01,
+      decay: 0.6,
+      sustain: 0.35,
+      release: 1.2,
     },
-    volume: -4,
+    volume: -8,
   });
   
   // ========== STRINGS - Warm pads ==========
@@ -247,21 +277,21 @@ export async function initAudio(): Promise<void> {
     oscillator: {
       type: "fatsawtooth",
       count: 3,
-      spread: 8,
+      spread: 6,
     },
     envelope: {
-      attack: 0.5,        // Faster attack
-      decay: 0.2,
+      attack: 0.8,
+      decay: 0.6,
       sustain: 0.7,
-      release: 1.5,
+      release: 2.2,
     },
-    volume: -10,
+    volume: -12,
   });
   
-  // Add vibrato to strings via LFO
+  // Add gentler vibrato to strings via LFO
   const vibrato = new T.Vibrato({
-    frequency: 5,
-    depth: 0.05,
+    frequency: 4.5,
+    depth: 0.025,
   });
   
   // ========== GUITAR - Plucked, short ==========
@@ -270,12 +300,12 @@ export async function initAudio(): Promise<void> {
       type: "triangle",
     },
     envelope: {
-      attack: 0.002,      // Sharp pluck
-      decay: 0.5,         // Shorter decay
-      sustain: 0.02,
-      release: 0.6,       // Quick release
+      attack: 0.004,
+      decay: 0.45,
+      sustain: 0.06,
+      release: 0.9,
     },
-    volume: -6,
+    volume: -8,
   });
   
   // ========== PAD - Soft atmospheric layer ==========
@@ -284,12 +314,19 @@ export async function initAudio(): Promise<void> {
       type: "sine",
     },
     envelope: {
-      attack: 4.0,        // Very slow fade in
+      attack: 4.0,
       decay: 1.5,
-      sustain: 0.5,
-      release: 6.0,       // Long fade out
+      sustain: 0.45,
+      release: 6.0,
     },
-    volume: -20,          // Much quieter
+    volume: -22,
+  });
+
+  // Pad high-pass to remove subsonic rumble (keeps background from being too low)
+  state.padHP = new T.Filter({
+    type: "highpass",
+    frequency: 40,
+    Q: 0.7,
   });
   
   // ========== EFFECTS CHAIN ==========
@@ -325,7 +362,8 @@ export async function initAudio(): Promise<void> {
     release: 0.25,
   });
   
-  state.masterGain = new T.Gain(state.userVolume * 0.6);
+  // Master gain follows the user volume directly (20% default)
+  state.masterGain = new T.Gain(state.userVolume);
   
   // Connect: instruments → effects → master
   const effectChain = [state.filter, state.delay, state.reverb, state.compressor, state.masterGain];
@@ -333,7 +371,8 @@ export async function initAudio(): Promise<void> {
   state.piano.chain(...effectChain, Destination);
   state.strings.chain(vibrato, ...effectChain, Destination);
   state.guitar.chain(...effectChain, Destination);
-  state.pad.chain(state.filter, state.reverb, state.masterGain, Destination);
+  // Pad goes through a high-pass first to avoid very low rumble, then the shared effect chain
+  state.pad.chain(state.padHP, state.filter, state.reverb, state.masterGain, Destination);
   
   state.transport = Transport;
   state.initialized = true;
@@ -393,7 +432,8 @@ export function stopAudio(): void {
 
 export function setVolume(volume: number): void {
   state.userVolume = clamp(volume, 0, 1);
-  state.masterGain?.gain.rampTo(state.userVolume * 0.6, 0.1);
+  // Ramp the master gain to the user volume (we use direct mapping)
+  state.masterGain?.gain.rampTo(state.userVolume, 0.1);
 }
 
 export function getVolume(): number {
@@ -452,6 +492,10 @@ function starToMusicParams(star: StarRecord): StarMusicParams {
   // Use Dec to shift the base note slightly (-2 to +2 semitones)
   const decShift = Math.round((dec + 90) / 180 * 4) - 2;
   const adjustedBaseNote = baseNote + decShift;
+  // For very hot or luminous stars, keep the base musical material lower to avoid piercing highs
+  const noteOffset = temp > 15000 ? 0 : 12;
+  // But for fast, agile voices (plucks/arps) we want a higher octave for hot stars
+  const fastNoteOffset = temp > 15000 ? 12 : noteOffset;
   
   // Magnitude → tempo
   const magNorm = clamp((6 - mag) / 8, 0, 1);
@@ -469,7 +513,14 @@ function starToMusicParams(star: StarRecord): StarMusicParams {
   const warmth = clamp(0.35 + (1 - tempNorm) * 0.5, 0.35, 0.85);
   const spaciousness = clamp(dist / 300, 0.25, 0.7);
   
-  return { baseNote: adjustedBaseNote, scale, tempo, warmth, spaciousness, density, emotion };
+  // Choose a pleasing chord palette based on temperature/emotion/hash
+  const paletteKeys = Object.keys(CHORD_PALETTES);
+  const paletteName = paletteKeys[starHash % paletteKeys.length] ?? paletteKeys[0];
+
+  // Small harmony shift (-1, 0, +1 semitone) derived deterministically from hash
+  const harmonyShift = (starHash % 3) - 1;
+
+  return { baseNote: adjustedBaseNote, scale, tempo, warmth, spaciousness, density, emotion, noteOffset, paletteName, harmonyShift, fastNoteOffset };
 }
 
 function tempToScale(temp: number, starHash: number): Scale {
@@ -493,6 +544,22 @@ function tempToScale(temp: number, starHash: number): Scale {
   // Use star hash to pick from options (adds variety within temp range)
   const idx = starHash % scaleOptions.length;
   return scaleOptions[idx];
+}
+
+// Build a voiced chord progression from a base progression and a palette.
+function buildVoicedProgression(progression: number[][], paletteName: string | undefined, starHash: number, harmonyShift = 0): number[][] {
+  const palette = CHORD_PALETTES[paletteName ?? Object.keys(CHORD_PALETTES)[0]] ?? CHORD_PALETTES.consonant;
+  const voiced: number[][] = [];
+
+  progression.forEach((chord, idx) => {
+    const chordRoot = chord[0] ?? 0;
+    const voicing = palette[(starHash + idx) % palette.length];
+    // Map voicing intervals onto the chord root and apply small harmony shift
+    const voicedChord = voicing.map(i => chordRoot + i + harmonyShift);
+    voiced.push(voicedChord);
+  });
+
+  return voiced;
 }
 
 function getEmotion(temp: number, scale: Scale, starHash: number): "hopeful" | "melancholic" | "serene" | "mysterious" {
@@ -578,40 +645,39 @@ function generateMotif(params: StarMusicParams, rng: SeededRNG): number[] {
   // Start with root
   motif.push(0);
   
-  // Second note: step up or down
-  const step1 = rng.next() < 0.6 ? 1 : -1;
-  motif.push(scale.intervals[clamp(step1 < 0 ? scale.intervals.length - 1 : 1, 0, scale.intervals.length - 1)]);
-  
-  // Third note: continue direction or return
-  if (rng.next() < 0.5) {
-    motif.push(scale.intervals[clamp(step1 < 0 ? scale.intervals.length - 2 : 2, 0, scale.intervals.length - 1)]);
+  // Second note: choose a nearby scale degree (avoid large jumps)
+  const maxDegree = Math.min(4, scale.intervals.length - 1);
+  const secondIdx = rng.nextInt(1, Math.max(1, maxDegree));
+  motif.push(scale.intervals[secondIdx]);
+
+  // Third note: usually move by a step near the second note, or return to root
+  if (rng.next() < 0.6) {
+    const dir = rng.next() < 0.6 ? 1 : -1;
+    const thirdIdx = clamp(secondIdx + dir, 0, maxDegree);
+    motif.push(scale.intervals[thirdIdx]);
   } else {
-    motif.push(0); // Return to root
+    motif.push(0);
   }
-  
-  // Fourth note: resolve to root, third, or fifth
-  const resolutions = [0, scale.intervals[2] ?? 3, scale.intervals[4] ?? 7];
+
+  // Fourth note: gentle resolution (root, nearby third, or stable fifth)
+  const commonFifth = scale.intervals[Math.min(4, scale.intervals.length - 1)] ?? 7;
+  const resolutions = [0, motif[1], commonFifth];
   motif.push(rng.pick(resolutions));
   
   return motif;
 }
 
 function composePhrase(params: StarMusicParams, rng: SeededRNG, star: StarRecord): ComposedPhrase {
-  const { baseNote, scale, emotion, density } = params;
+  const { baseNote, scale, emotion, density, noteOffset = 12, paletteName = "consonant", harmonyShift = 0 } = params;
   const progression = PROGRESSIONS[emotion] ?? PROGRESSIONS.serene;
-  
+
   // Use ACTUAL star hash for unique patterns per star
   const starHash = hashStar(star);
   const pianoRhythm = getStarRhythm(starHash);
   const arpStyle = getStarArpStyle(starHash);
-  
-  // Select chord progression variations based on hash
-  const progVariation = starHash % 3;
-  const chordProgression = progVariation === 0 
-    ? [progression[0], progression[1]]
-    : progVariation === 1 
-    ? [progression[0], progression[2] ?? progression[1]]
-    : [progression[1], progression[0]]; // Reversed
+
+  // Build voiced chord progression from palette
+  const chordProgression = buildVoicedProgression(progression, paletteName, starHash, harmonyShift);
   
   const pianoNotes: ComposedPhrase["pianoNotes"] = [];
   
@@ -620,7 +686,7 @@ function composePhrase(params: StarMusicParams, rng: SeededRNG, star: StarRecord
     const motifNote = state.motif[i % state.motif.length];
     pianoNotes.push({
       beat: beat,
-      midi: baseNote + 12 + motifNote,
+      midi: baseNote + noteOffset + motifNote + harmonyShift,
       duration: i === 2 ? 1.5 : 0.8, // Last note longer
       velocity: i === 0 ? 0.55 : 0.45, // First note accented
     });
@@ -631,7 +697,7 @@ function composePhrase(params: StarMusicParams, rng: SeededRNG, star: StarRecord
     const motifNote = state.motif[i % state.motif.length];
     pianoNotes.push({
       beat: beat + 4,
-      midi: baseNote + 12 + motifNote,
+      midi: baseNote + noteOffset + motifNote + harmonyShift,
       duration: i === 2 ? 1.5 : 0.8,
       velocity: i === 0 ? 0.55 : 0.45,
     });
@@ -644,7 +710,7 @@ function composePhrase(params: StarMusicParams, rng: SeededRNG, star: StarRecord
     // Keep same octave, just slightly different dynamics
     pianoNotes.push({
       beat: beat + 8,
-      midi: baseNote + 12 + motifNote, // Same octave as first phrase
+      midi: baseNote + noteOffset + motifNote + harmonyShift, // Same octave as first phrase
       duration: i === 2 ? 1.5 : 0.8,
       velocity: i === 0 ? 0.45 : 0.38, // Slightly softer
     });
@@ -653,13 +719,13 @@ function composePhrase(params: StarMusicParams, rng: SeededRNG, star: StarRecord
   // Final resolution phrase (bars 7-8) - end on root
   pianoNotes.push({
     beat: 12,
-    midi: baseNote + 12,
+    midi: baseNote + noteOffset + harmonyShift,
     duration: 2,
     velocity: 0.5,
   });
   pianoNotes.push({
     beat: 14,
-    midi: baseNote + 12 + (scale.intervals[4] ?? 7), // Fifth
+    midi: baseNote + noteOffset + (scale.intervals[4] ?? 7) + harmonyShift, // Fifth
     duration: 1.5,
     velocity: 0.4,
   });
@@ -697,7 +763,7 @@ function composePhrase(params: StarMusicParams, rng: SeededRNG, star: StarRecord
       arpPattern.forEach((interval, i) => {
         guitarNotes.push({
           beat: responseBeat + i * 0.25,
-          midi: baseNote + (respIdx === 2 ? 0 : 12) + interval, // Last one lower
+          midi: baseNote + (respIdx === 2 ? 0 : (params.fastNoteOffset ?? noteOffset)) + interval + harmonyShift, // Last one lower
           duration: 0.6,
           velocity: 0.38 - respIdx * 0.03, // Gradually softer
         });
@@ -720,7 +786,8 @@ function scheduleGenerativeMusic(params: StarMusicParams, rng: SeededRNG, star: 
   
   // ========== SCHEDULE ALL PARTS ==========
   // Pad drone disabled - was causing unpleasant sounds
-  // schedulePadDrone(params, cycleDuration, beatsToSec);
+  // Schedule pad drone with per-star safeguards
+  schedulePadDrone(params, cycleDuration, beatsToSec, star);
   scheduleStrings(params, cycleDuration, beatsToSec);
   schedulePiano(beatsToSec);
   scheduleGuitar(beatsToSec);
@@ -739,22 +806,35 @@ function scheduleGenerativeMusic(params: StarMusicParams, rng: SeededRNG, star: 
   }, beatsToSec(cycleDuration - 0.1));
 }
 
-function schedulePadDrone(params: StarMusicParams, cycleDuration: number, beatsToSec: (b: number) => number): void {
+function schedulePadDrone(params: StarMusicParams, cycleDuration: number, beatsToSec: (b: number) => number, star: StarRecord): void {
   const { baseNote, warmth } = params;
-  
+
   // Keep drone in comfortable range: C2-G2 (36-43)
-  // Don't go too low (rumbles) or too high (distracting)
-  const droneRoot = clamp(baseNote, 36, 43);
-  
-  // Simple fifth interval - always sounds good
-  const droneNotes = [
-    midiToNote(droneRoot),      // Root in C2-G2
-    midiToNote(droneRoot + 7),  // Fifth above
-  ];
-  
-  // Very quiet - this should be barely audible atmosphere
-  const padVelocity = 0.08 + warmth * 0.06;
-  
+  let droneRoot = clamp(baseNote, 36, 43);
+
+  // Avoid very low background drones that become rumble — raise to at least MIDI 40
+  if (droneRoot < 40) droneRoot += 12; // raise an octave if too low
+
+  // For very hot or very distant stars we prefer an octave drone (root + octave)
+  // which is less harmonically bright than a perfect fifth stack.
+  const isHot = (star.temp ?? specToTemp(star.spec)) > 15000;
+  const isDistant = (star.dist ?? 0) > 1500;
+
+  const droneIntervals = isHot || isDistant ? [0, 12] : [0, 7];
+  const droneNotes = droneIntervals.map(i => midiToNote(droneRoot + i));
+
+  // Keep drone very quiet and slightly lower for hot/distant stars
+  let padVelocity = 0.06 + warmth * 0.05;
+  if (isHot) padVelocity *= 0.6;
+  if (isDistant) padVelocity *= 0.75;
+
+  // Slightly lower the global filter cutoff for hot stars to reduce piercing harmonics
+  if (isHot) {
+    const lowCut = 1200; // Hz
+    state.filter?.frequency.rampTo(Math.min((state.filter?.frequency?.value ?? 4000), lowCut), 0.8);
+    state.reverb?.wet.rampTo(0.22, 0.8);
+  }
+
   state.transport.schedule((time: number) => {
     state.pad?.triggerAttackRelease(droneNotes, beatsToSec(cycleDuration + 2), time, padVelocity);
   }, 0);
@@ -865,7 +945,7 @@ export function dispose(): void {
   stopAudio();
   
   [state.piano, state.strings, state.guitar, state.pad,
-   state.reverb, state.delay, state.filter, state.compressor, state.masterGain
+    state.reverb, state.delay, state.filter, state.compressor, state.masterGain, state.padHP
   ].forEach(node => node?.dispose?.());
   
   state.piano = null;

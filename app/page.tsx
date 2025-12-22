@@ -5,7 +5,7 @@ import { SkyScene } from "@/components/SkyScene";
 import { ControlsBar } from "@/components/ControlsBar";
 import { StarInfoPanel } from "@/components/StarInfoPanel";
 import { Constellation, StarRecord, StarSelection } from "@/lib/types";
-import { initAudio, playForStar, setVolume, stopAudio } from "@/audio/engine";
+import { initAudio, playForStar, setVolume, stopAudio, getVolume } from "@/audio/engine";
 
 export default function Page() {
   const [stars, setStars] = useState<StarRecord[]>([]);
@@ -15,7 +15,13 @@ export default function Page() {
   const [error, setError] = useState<string>();
   const [showConstellations, setShowConstellations] = useState(true);
   const [playing, setPlaying] = useState(false);
-  const [volume, setVolumeState] = useState(0.8);
+  const [volume, setVolumeState] = useState<number>(() => {
+    try {
+      return getVolume();
+    } catch (e) {
+      return 0.8;
+    }
+  });
 
   useEffect(() => {
     const stored = typeof window !== "undefined" ? localStorage.getItem("showConstellations") : null;
