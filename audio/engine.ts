@@ -18,6 +18,7 @@
 import { StarRecord } from "@/lib/types";
 import { clamp } from "@/lib/astro";
 import { HARMONIC_PATTERNS, HarmonicPattern } from "./patterns/harmony";
+import { mapStarToTone } from "../audio/mappings";
 
 // ============================================================================
 // TYPES
@@ -492,13 +493,25 @@ function starToMusicParams(star: StarRecord): StarMusicParams {
   const pattern = HARMONIC_PATTERNS[starHash % HARMONIC_PATTERNS.length];
   const scale = SCALES[pattern.scale] ?? tempToScale(temp, starHash);
   
-  // Use RA position to select root note (different keys!)
+  // Try to get mapped tone params (gain, baseNote, filterCutoff) from mappings.ts.
+  // Fall back to positional root note logic if mapping is unavailable.
+  let mappedBaseNote: number | undefined;
+  try {
+    const toneParams = mapStarToTone(star as any);
+    mappedBaseNote = toneParams?.baseNote;
+  } catch (e) {
+    mappedBaseNote = undefined;
+  }
+
+  // Use RA position to select root note (different keys!) if mapping missing
   const rootIndex = Math.floor((ra / 360) * ROOT_NOTES.length) % ROOT_NOTES.length;
-  const baseNote = ROOT_NOTES[rootIndex];
-  
+  const positionalBase = ROOT_NOTES[rootIndex];
+
   // Use Dec to shift the base note slightly (-2 to +2 semitones)
   const decShift = Math.round((dec + 90) / 180 * 4) - 2;
-  const adjustedBaseNote = baseNote + decShift;
+
+  const baseNote = (typeof mappedBaseNote === "number") ? Math.round(mappedBaseNote) + decShift : positionalBase + decShift;
+  const adjustedBaseNote = baseNote;
   // Map temperature → octave bias: hot stars get a higher octave for brightness; cooler stars stay lower/warmer
   const noteOffset = temp > 15000 ? 12 : 0;
   // Fast voices stay a bit higher for hot stars, modest for cool stars
