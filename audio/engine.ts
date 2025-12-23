@@ -17,6 +17,7 @@
 
 import { StarRecord } from "@/lib/types";
 import { clamp } from "@/lib/astro";
+import { HARMONIC_PATTERNS, HarmonicPattern } from "./patterns/harmony";
 
 // ============================================================================
 // TYPES
@@ -52,6 +53,7 @@ export interface StarMusicParams {
   paletteName?: string;
   harmonyShift?: number;
   fastNoteOffset?: number; // offset used for fast / plucked notes (guitar, quick arps)
+  pattern?: HarmonicPattern; // curated harmonic pattern chosen deterministically per star
 }
 
 // ============================================================================
@@ -66,14 +68,6 @@ const SCALES: Record<string, Scale> = {
   mixolydian: { name: "Mixolydian", intervals: [0, 2, 4, 5, 7, 9, 10] },
   aeolian:    { name: "Minor",      intervals: [0, 2, 3, 5, 7, 8, 10] },
   pentatonic: { name: "Pentatonic", intervals: [0, 2, 4, 7, 9] },
-};
-
-// Common progressions by emotion
-const PROGRESSIONS: Record<string, number[][]> = {
-  hopeful: [[0, 4, 7], [5, 9, 12], [7, 11, 14], [0, 4, 7]],     // I - IV - V - I
-  melancholic: [[0, 3, 7], [5, 8, 12], [3, 7, 10], [0, 3, 7]],  // i - iv - III - i
-  serene: [[0, 7, 14], [5, 12, 19], [7, 14, 21], [0, 7, 14]],   // Quintal movement
-  mysterious: [[0, 1, 7], [5, 6, 12], [7, 8, 14], [0, 1, 7]],   // Phrygian color
 };
 
 // Human-pleasing chord palettes (voicings). Each palette is a list of voicings
@@ -496,8 +490,9 @@ function starToMusicParams(star: StarRecord): StarMusicParams {
   // Create a unique hash for this star for deterministic variation
   const starHash = hashStar(star);
   
-  // Temperature → scale (but with variation)
-  const scale = tempToScale(temp, starHash);
+  // Choose a curated harmonic pattern deterministically, then align scale to it
+  const pattern = HARMONIC_PATTERNS[starHash % HARMONIC_PATTERNS.length];
+  const scale = SCALES[pattern.scale] ?? tempToScale(temp, starHash);
   
   // Use RA position to select root note (different keys!)
   const rootIndex = Math.floor((ra / 360) * ROOT_NOTES.length) % ROOT_NOTES.length;
@@ -534,7 +529,7 @@ function starToMusicParams(star: StarRecord): StarMusicParams {
   // Small harmony shift (-1, 0, +1 semitone) derived deterministically from hash
   const harmonyShift = (starHash % 3) - 1;
 
-  return { baseNote: adjustedBaseNote, scale, tempo, warmth, spaciousness, density, emotion, noteOffset, paletteName, harmonyShift, fastNoteOffset };
+  return { baseNote: adjustedBaseNote, scale, tempo, warmth, spaciousness, density, emotion, noteOffset, paletteName, harmonyShift, fastNoteOffset, pattern };
 }
 
 function tempToScale(temp: number, starHash: number): Scale {
@@ -558,22 +553,6 @@ function tempToScale(temp: number, starHash: number): Scale {
   // Use star hash to pick from options (adds variety within temp range)
   const idx = starHash % scaleOptions.length;
   return scaleOptions[idx];
-}
-
-// Build a voiced chord progression from a base progression and a palette.
-function buildVoicedProgression(progression: number[][], paletteName: string | undefined, starHash: number, harmonyShift = 0): number[][] {
-  const palette = CHORD_PALETTES[paletteName ?? Object.keys(CHORD_PALETTES)[0]] ?? CHORD_PALETTES.consonant;
-  const voiced: number[][] = [];
-
-  progression.forEach((chord, idx) => {
-    const chordRoot = chord[0] ?? 0;
-    const voicing = palette[(starHash + idx) % palette.length];
-    // Map voicing intervals onto the chord root and apply small harmony shift
-    const voicedChord = voicing.map(i => chordRoot + i + harmonyShift);
-    voiced.push(voicedChord);
-  });
-
-  return voiced;
 }
 
 function getEmotion(temp: number, scale: Scale, starHash: number): "hopeful" | "melancholic" | "serene" | "mysterious" {
@@ -682,16 +661,16 @@ function generateMotif(params: StarMusicParams, rng: SeededRNG): number[] {
 }
 
 function composePhrase(params: StarMusicParams, rng: SeededRNG, star: StarRecord): ComposedPhrase {
-  const { baseNote, scale, emotion, density, noteOffset = 12, paletteName = "consonant", harmonyShift = 0 } = params;
-  const progression = PROGRESSIONS[emotion] ?? PROGRESSIONS.serene;
+  const { baseNote, scale, emotion, density, noteOffset = 12, paletteName = "consonant", harmonyShift = 0, pattern } = params;
+  const progression = pattern?.chords ?? [[0, 4, 7], [5, 9, 12], [7, 11, 14], [0, 4, 7]]; // fallback I-IV-V-I if pattern missing
 
   // Use ACTUAL star hash for unique patterns per star
   const starHash = hashStar(star);
   const pianoRhythm = getStarRhythm(starHash);
   const arpStyle = getStarArpStyle(starHash);
 
-  // Build voiced chord progression from palette
-  const chordProgression = buildVoicedProgression(progression, paletteName, starHash, harmonyShift);
+  // Use curated chords (already voiced) and apply a small harmony shift if requested
+  const chordProgression = progression.map(chord => chord.map(n => n + harmonyShift));
   
   const pianoNotes: ComposedPhrase["pianoNotes"] = [];
   
