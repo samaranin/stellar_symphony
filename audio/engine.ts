@@ -17,6 +17,7 @@
 
 import { StarRecord } from "@/lib/types";
 import { clamp } from "@/lib/astro";
+import { HARMONIC_PATTERNS, HarmonicPattern } from "./patterns/harmony";
 
 // ============================================================================
 // TYPES
@@ -52,6 +53,7 @@ export interface StarMusicParams {
   paletteName?: string;
   harmonyShift?: number;
   fastNoteOffset?: number; // offset used for fast / plucked notes (guitar, quick arps)
+  pattern?: HarmonicPattern; // curated harmonic pattern chosen deterministically per star
 }
 
 // ============================================================================
@@ -66,14 +68,6 @@ const SCALES: Record<string, Scale> = {
   mixolydian: { name: "Mixolydian", intervals: [0, 2, 4, 5, 7, 9, 10] },
   aeolian:    { name: "Minor",      intervals: [0, 2, 3, 5, 7, 8, 10] },
   pentatonic: { name: "Pentatonic", intervals: [0, 2, 4, 7, 9] },
-};
-
-// Common progressions by emotion
-const PROGRESSIONS: Record<string, number[][]> = {
-  hopeful: [[0, 4, 7], [5, 9, 12], [7, 11, 14], [0, 4, 7]],     // I - IV - V - I
-  melancholic: [[0, 3, 7], [5, 8, 12], [3, 7, 10], [0, 3, 7]],  // i - iv - III - i
-  serene: [[0, 7, 14], [5, 12, 19], [7, 14, 21], [0, 7, 14]],   // Quintal movement
-  mysterious: [[0, 1, 7], [5, 6, 12], [7, 8, 14], [0, 1, 7]],   // Phrygian color
 };
 
 // Human-pleasing chord palettes (voicings). Each palette is a list of voicings
@@ -276,17 +270,15 @@ export async function initAudio(): Promise<void> {
   // ========== STRINGS - Warm pads ==========
   state.strings = new T.PolySynth(T.Synth, {
     oscillator: {
-      type: "fatsawtooth",
-      count: 3,
-      spread: 6,
+      type: "triangle",
     },
     envelope: {
-      attack: 0.8,
-      decay: 0.6,
-      sustain: 0.7,
-      release: 2.2,
+      attack: 1.2,
+      decay: 0.7,
+      sustain: 0.55,
+      release: 2.8,
     },
-    volume: -12,
+    volume: -16,
   });
   
   // Add gentler vibrato to strings via LFO
@@ -496,8 +488,9 @@ function starToMusicParams(star: StarRecord): StarMusicParams {
   // Create a unique hash for this star for deterministic variation
   const starHash = hashStar(star);
   
-  // Temperature → scale (but with variation)
-  const scale = tempToScale(temp, starHash);
+  // Choose a curated harmonic pattern deterministically, then align scale to it
+  const pattern = HARMONIC_PATTERNS[starHash % HARMONIC_PATTERNS.length];
+  const scale = SCALES[pattern.scale] ?? tempToScale(temp, starHash);
   
   // Use RA position to select root note (different keys!)
   const rootIndex = Math.floor((ra / 360) * ROOT_NOTES.length) % ROOT_NOTES.length;
@@ -506,10 +499,10 @@ function starToMusicParams(star: StarRecord): StarMusicParams {
   // Use Dec to shift the base note slightly (-2 to +2 semitones)
   const decShift = Math.round((dec + 90) / 180 * 4) - 2;
   const adjustedBaseNote = baseNote + decShift;
-  // For very hot or luminous stars, keep the base musical material lower to avoid piercing highs
-  const noteOffset = temp > 15000 ? 0 : 12;
-  // But for fast, agile voices (plucks/arps) we want a higher octave for hot stars
-  const fastNoteOffset = temp > 15000 ? 12 : noteOffset;
+  // Map temperature → octave bias: hot stars get a higher octave for brightness; cooler stars stay lower/warmer
+  const noteOffset = temp > 15000 ? 12 : 0;
+  // Fast voices stay a bit higher for hot stars, modest for cool stars
+  const fastNoteOffset = temp > 15000 ? 12 : 6;
   
   // Magnitude → tempo
   const magNorm = clamp((6 - mag) / 8, 0, 1);
@@ -534,7 +527,7 @@ function starToMusicParams(star: StarRecord): StarMusicParams {
   // Small harmony shift (-1, 0, +1 semitone) derived deterministically from hash
   const harmonyShift = (starHash % 3) - 1;
 
-  return { baseNote: adjustedBaseNote, scale, tempo, warmth, spaciousness, density, emotion, noteOffset, paletteName, harmonyShift, fastNoteOffset };
+  return { baseNote: adjustedBaseNote, scale, tempo, warmth, spaciousness, density, emotion, noteOffset, paletteName, harmonyShift, fastNoteOffset, pattern };
 }
 
 function tempToScale(temp: number, starHash: number): Scale {
@@ -558,22 +551,6 @@ function tempToScale(temp: number, starHash: number): Scale {
   // Use star hash to pick from options (adds variety within temp range)
   const idx = starHash % scaleOptions.length;
   return scaleOptions[idx];
-}
-
-// Build a voiced chord progression from a base progression and a palette.
-function buildVoicedProgression(progression: number[][], paletteName: string | undefined, starHash: number, harmonyShift = 0): number[][] {
-  const palette = CHORD_PALETTES[paletteName ?? Object.keys(CHORD_PALETTES)[0]] ?? CHORD_PALETTES.consonant;
-  const voiced: number[][] = [];
-
-  progression.forEach((chord, idx) => {
-    const chordRoot = chord[0] ?? 0;
-    const voicing = palette[(starHash + idx) % palette.length];
-    // Map voicing intervals onto the chord root and apply small harmony shift
-    const voicedChord = voicing.map(i => chordRoot + i + harmonyShift);
-    voiced.push(voicedChord);
-  });
-
-  return voiced;
 }
 
 function getEmotion(temp: number, scale: Scale, starHash: number): "hopeful" | "melancholic" | "serene" | "mysterious" {
@@ -682,16 +659,16 @@ function generateMotif(params: StarMusicParams, rng: SeededRNG): number[] {
 }
 
 function composePhrase(params: StarMusicParams, rng: SeededRNG, star: StarRecord): ComposedPhrase {
-  const { baseNote, scale, emotion, density, noteOffset = 12, paletteName = "consonant", harmonyShift = 0 } = params;
-  const progression = PROGRESSIONS[emotion] ?? PROGRESSIONS.serene;
+  const { baseNote, scale, emotion, density, noteOffset = 12, paletteName = "consonant", harmonyShift = 0, pattern } = params;
+  const progression = pattern?.chords ?? [[0, 4, 7], [5, 9, 12], [7, 11, 14], [0, 4, 7]]; // fallback I-IV-V-I if pattern missing
 
   // Use ACTUAL star hash for unique patterns per star
   const starHash = hashStar(star);
   const pianoRhythm = getStarRhythm(starHash);
   const arpStyle = getStarArpStyle(starHash);
 
-  // Build voiced chord progression from palette
-  const chordProgression = buildVoicedProgression(progression, paletteName, starHash, harmonyShift);
+  // Use curated chords (already voiced) and apply a small harmony shift if requested
+  const chordProgression = progression.map(chord => chord.map(n => n + harmonyShift));
   
   const pianoNotes: ComposedPhrase["pianoNotes"] = [];
   
@@ -776,7 +753,7 @@ function composePhrase(params: StarMusicParams, rng: SeededRNG, star: StarRecord
     // Choose a fast rhythm variant and small deterministic inversion/rotation for variety
     const fastRhythm = rng.pick(FAST_RHYTHMS);
     const startRot = rng.nextInt(0, Math.max(0, arpPattern.length - 1));
-    const octaveJump = rng.next() < 0.25; // occasional octave jump
+    const octaveJump = rng.next() < 0.1; // rarer octave jump to reduce randomness
 
     responseBeats.forEach((responseBeat, respIdx) => {
       // pick a rhythm pattern variant for this response slot
@@ -786,7 +763,7 @@ function composePhrase(params: StarMusicParams, rng: SeededRNG, star: StarRecord
         let interval = arpPattern[idx];
         // optionally octave-shift every other note for sparkle
         if (octaveJump && j % 2 === 1) interval += 12;
-        const jitter = Math.max(-0.04, Math.min(0.04, rng.gaussian(0, 0.015)));
+        const jitter = Math.max(-0.02, Math.min(0.02, rng.gaussian(0, 0.01)));
         guitarNotes.push({
           beat: responseBeat + subOffset,
           midi: baseNote + (respIdx === 2 ? 0 : (params.fastNoteOffset ?? noteOffset)) + interval + harmonyShift, // Last one lower
@@ -871,24 +848,14 @@ function scheduleGenerativeMusic(params: StarMusicParams, rng: SeededRNG, star: 
 function schedulePadDrone(params: StarMusicParams, cycleDuration: number, beatsToSec: (b: number) => number, star: StarRecord): void {
   const { baseNote, warmth } = params;
 
-  // Keep drone in comfortable range: C2-G2 (36-43)
-  let droneRoot = clamp(baseNote, 36, 43);
+  // Keep drone in comfortable range and slightly higher to stay out of the way of shorts
+  let droneRoot = clamp(baseNote, 36, 43) + 12;
 
-  // Avoid very low background drones that become rumble — raise to at least MIDI 40
-  if (droneRoot < 40) droneRoot += 12; // raise an octave if too low
+  // For smoother background, keep drone to a single root (remove fifths/octaves)
+  const droneNotes = [midiToNote(droneRoot)];
 
-  // For very hot or very distant stars we prefer an octave drone (root + octave)
-  // which is less harmonically bright than a perfect fifth stack.
-  const isHot = (star.temp ?? specToTemp(star.spec)) > 15000;
-  const isDistant = (star.dist ?? 0) > 1500;
-
-  const droneIntervals = isHot || isDistant ? [0, 12] : [0, 7];
-  const droneNotes = droneIntervals.map(i => midiToNote(droneRoot + i));
-
-  // Keep drone very quiet and slightly lower for hot/distant stars
-  let padVelocity = 0.06 + warmth * 0.05;
-  if (isHot) padVelocity *= 0.6;
-  if (isDistant) padVelocity *= 0.75;
+  // Keep drone very quiet
+  let padVelocity = 0.04 + warmth * 0.03;
 
   // Shorten pad duration for very bright / nearby stars, but do NOT lower the level.
   // Instead we will gently reduce the global filter cutoff during the pad so
@@ -897,6 +864,9 @@ function schedulePadDrone(params: StarMusicParams, cycleDuration: number, beatsT
   const magNorm = clamp((6 - mag) / 8, 0, 1);
   const rawPadBeats = (cycleDuration + 2) * (1 - magNorm * 0.45);
   const padBeats = clamp(rawPadBeats, 4, cycleDuration + 2);
+
+  // Hot stars are more prone to bright overtones; we detect once here
+  const isHot = (star.temp ?? specToTemp(star.spec)) > 15000;
 
   // Slightly lower the global filter cutoff for hot stars to reduce piercing harmonics
   if (isHot) {
