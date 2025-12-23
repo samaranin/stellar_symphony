@@ -270,17 +270,15 @@ export async function initAudio(): Promise<void> {
   // ========== STRINGS - Warm pads ==========
   state.strings = new T.PolySynth(T.Synth, {
     oscillator: {
-      type: "fatsawtooth",
-      count: 3,
-      spread: 6,
+      type: "triangle",
     },
     envelope: {
-      attack: 0.8,
-      decay: 0.6,
-      sustain: 0.7,
-      release: 2.2,
+      attack: 1.2,
+      decay: 0.7,
+      sustain: 0.55,
+      release: 2.8,
     },
-    volume: -12,
+    volume: -16,
   });
   
   // Add gentler vibrato to strings via LFO
@@ -501,10 +499,10 @@ function starToMusicParams(star: StarRecord): StarMusicParams {
   // Use Dec to shift the base note slightly (-2 to +2 semitones)
   const decShift = Math.round((dec + 90) / 180 * 4) - 2;
   const adjustedBaseNote = baseNote + decShift;
-  // For very hot or luminous stars, keep the base musical material lower to avoid piercing highs
-  const noteOffset = temp > 15000 ? 0 : 12;
-  // But for fast, agile voices (plucks/arps) we want a higher octave for hot stars
-  const fastNoteOffset = temp > 15000 ? 12 : noteOffset;
+  // Map temperature → octave bias: hot stars get a higher octave for brightness; cooler stars stay lower/warmer
+  const noteOffset = temp > 15000 ? 12 : 0;
+  // Fast voices stay a bit higher for hot stars, modest for cool stars
+  const fastNoteOffset = temp > 15000 ? 12 : 6;
   
   // Magnitude → tempo
   const magNorm = clamp((6 - mag) / 8, 0, 1);
@@ -755,7 +753,7 @@ function composePhrase(params: StarMusicParams, rng: SeededRNG, star: StarRecord
     // Choose a fast rhythm variant and small deterministic inversion/rotation for variety
     const fastRhythm = rng.pick(FAST_RHYTHMS);
     const startRot = rng.nextInt(0, Math.max(0, arpPattern.length - 1));
-    const octaveJump = rng.next() < 0.25; // occasional octave jump
+    const octaveJump = rng.next() < 0.1; // rarer octave jump to reduce randomness
 
     responseBeats.forEach((responseBeat, respIdx) => {
       // pick a rhythm pattern variant for this response slot
@@ -765,7 +763,7 @@ function composePhrase(params: StarMusicParams, rng: SeededRNG, star: StarRecord
         let interval = arpPattern[idx];
         // optionally octave-shift every other note for sparkle
         if (octaveJump && j % 2 === 1) interval += 12;
-        const jitter = Math.max(-0.04, Math.min(0.04, rng.gaussian(0, 0.015)));
+        const jitter = Math.max(-0.02, Math.min(0.02, rng.gaussian(0, 0.01)));
         guitarNotes.push({
           beat: responseBeat + subOffset,
           midi: baseNote + (respIdx === 2 ? 0 : (params.fastNoteOffset ?? noteOffset)) + interval + harmonyShift, // Last one lower
@@ -850,24 +848,14 @@ function scheduleGenerativeMusic(params: StarMusicParams, rng: SeededRNG, star: 
 function schedulePadDrone(params: StarMusicParams, cycleDuration: number, beatsToSec: (b: number) => number, star: StarRecord): void {
   const { baseNote, warmth } = params;
 
-  // Keep drone in comfortable range: C2-G2 (36-43)
-  let droneRoot = clamp(baseNote, 36, 43);
+  // Keep drone in comfortable range and slightly higher to stay out of the way of shorts
+  let droneRoot = clamp(baseNote, 36, 43) + 12;
 
-  // Avoid very low background drones that become rumble — raise to at least MIDI 40
-  if (droneRoot < 40) droneRoot += 12; // raise an octave if too low
+  // For smoother background, keep drone to a single root (remove fifths/octaves)
+  const droneNotes = [midiToNote(droneRoot)];
 
-  // For very hot or very distant stars we prefer an octave drone (root + octave)
-  // which is less harmonically bright than a perfect fifth stack.
-  const isHot = (star.temp ?? specToTemp(star.spec)) > 15000;
-  const isDistant = (star.dist ?? 0) > 1500;
-
-  const droneIntervals = isHot || isDistant ? [0, 12] : [0, 7];
-  const droneNotes = droneIntervals.map(i => midiToNote(droneRoot + i));
-
-  // Keep drone very quiet and slightly lower for hot/distant stars
-  let padVelocity = 0.06 + warmth * 0.05;
-  if (isHot) padVelocity *= 0.6;
-  if (isDistant) padVelocity *= 0.75;
+  // Keep drone very quiet
+  let padVelocity = 0.04 + warmth * 0.03;
 
   // Shorten pad duration for very bright / nearby stars, but do NOT lower the level.
   // Instead we will gently reduce the global filter cutoff during the pad so
@@ -876,6 +864,9 @@ function schedulePadDrone(params: StarMusicParams, cycleDuration: number, beatsT
   const magNorm = clamp((6 - mag) / 8, 0, 1);
   const rawPadBeats = (cycleDuration + 2) * (1 - magNorm * 0.45);
   const padBeats = clamp(rawPadBeats, 4, cycleDuration + 2);
+
+  // Hot stars are more prone to bright overtones; we detect once here
+  const isHot = (star.temp ?? specToTemp(star.spec)) > 15000;
 
   // Slightly lower the global filter cutoff for hot stars to reduce piercing harmonics
   if (isHot) {
