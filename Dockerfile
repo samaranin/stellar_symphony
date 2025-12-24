@@ -2,7 +2,7 @@
 # Stellar Symphony - Multi-stage Dockerfile
 # =============================================================================
 # Build: docker build -t stellar-symphony .
-# Run:   docker run -p 3000:3000 stellar-symphony
+# Run:   docker run -p 3535:3535 stellar-symphony
 # =============================================================================
 
 # -----------------------------------------------------------------------------
@@ -63,11 +63,11 @@ COPY --from=builder --chown=nextjs:nodejs /app/out ./out
 USER nextjs
 
 # Expose port
-EXPOSE 3000
+EXPOSE 3535
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-  CMD wget --no-verbose --tries=1 --spider http://localhost:3000/ || exit 1
+  CMD wget --no-verbose --tries=1 --spider http://localhost:3535/ || exit 1
 
 # Serve the static files
-CMD ["serve", "-s", "out", "-l", "3000"]
+CMD ["serve", "-s", "out", "-l", "3535"]
