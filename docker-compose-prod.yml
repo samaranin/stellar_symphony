@@ -30,3 +30,9 @@ services:
       timeout: 3s
       start_period: 5s
       retries: 3
+    networks:
+      - lametsy_meteo_net
+
+networks:
+  lametsy_meteo_net:
+    external: true
